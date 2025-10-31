@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<body>
+<button onclick="startChat()">Start Private Chat</button>
+<script>
+function startChat(){
+    const roomId = Math.random().toString(36).substring(2, 15);
+    location.href = '/' + roomId;
+}
+</script>
+</body>
+</html>
