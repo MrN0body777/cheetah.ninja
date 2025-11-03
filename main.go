@@ -1,20 +1,20 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"html/template"
 	"net/http"
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
 )
 
-// --- Backend Data & Logic ---
-
 var roomsMutex sync.Mutex
 var rooms = make(map[string]*Room)
+
+// Load templates from the templates folder
+var templates = template.Must(template.ParseFiles("templates/index.html", "templates/chat.html"))
 
 type Room struct {
 	Clients map[*Client]bool
@@ -26,62 +26,59 @@ type Client struct {
 	UserID string
 }
 
-// PageData is the structure for data injected into our HTML templates.
 type PageData struct {
-	RoomID        string
-	ResponsiveCSS template.CSS
+	RoomID          string
+	ResponsiveCSS   template.CSS
+	IsChromeAndroid bool
+	MetaTags        template.HTML
 }
 
-// CSS blocks are now constants in the backend.
+// Device-specific CSS constants
+const cssFirefoxAndroid = `
+body { font-size:14px; }
+#msgInput { font-size:14px; padding:10px 14px; }
+#sendBtn, #shareBtn { font-size:14px; padding:10px 16px; }
+`
+
+const cssChromeAndroid = `
+body { font-size:16px; }
+#msgInput { font-size:16px; padding:12px 16px; }
+#sendBtn, #shareBtn { font-size:16px; padding:12px 20px; }
+`
+
 const cssSmall = `
-@media (max-width: 389px) {
-    #header, #messages, #inputArea { padding: 8px; }
-    #messages, #msgInput, #charCount, #sendBtn, #shareBtn { font-size: 14px; }
-    #inputArea { gap: 8px; }
-    #send-controls { gap: 6px; }
-    #msgInput { padding: 8px 12px; }
-    #sendBtn, #shareBtn { padding: 8px 16px; }
-    .msg { margin-bottom: 4px; }
-    button { padding:10px 16px; font-size:14px; }
-}
+body { font-size:14px; }
+#msgInput { font-size:14px; padding:10px 14px; }
+#sendBtn, #shareBtn { font-size:14px; padding:10px 16px; }
 `
 
 const cssMedium = `
-@media (min-width: 390px) and (max-width: 429px) {
-    #header, #messages, #inputArea { padding: 12px; }
-    #messages, #msgInput, #charCount, #sendBtn, #shareBtn { font-size: 16px; }
-    #inputArea { gap: 12px; }
-    #send-controls { gap: 8px; }
-    #msgInput { padding: 12px 16px; }
-    #sendBtn, #shareBtn { padding: 12px 20px; }
-    .msg { margin-bottom: 6px; }
-    button { padding:12px 20px; font-size:16px; }
-}
+body { font-size:16px; }
+#msgInput { font-size:16px; padding:12px 16px; }
+#sendBtn, #shareBtn { font-size:16px; padding:12px 20px; }
 `
 
 const cssLarge = `
-@media (min-width: 430px) {
-    #header, #messages, #inputArea { padding: 14px; }
-    #messages, #msgInput, #charCount, #sendBtn, #shareBtn { font-size: 17px; }
-    #inputArea { gap: 14px; }
-    #send-controls { gap: 10px; }
-    #msgInput { padding: 14px 18px; }
-    #sendBtn, #shareBtn { padding: 14px 24px; }
-    .msg { margin-bottom: 8px; }
-    button { padding:14px 24px; font-size:18px; }
-}
+body { font-size:18px; }
+#msgInput { font-size:18px; padding:14px 18px; }
+#sendBtn, #shareBtn { font-size:18px; padding:14px 22px; }
 `
 
-// --- Backend Functions ---
-
-func generateShortID() string {
-	b := make([]byte, 4)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+func generateUUID() string {
+	return uuid.New().String()
 }
 
 func detectDeviceType(userAgent string) string {
 	ua := strings.ToLower(userAgent)
+	// Check for Firefox on Android first
+	if strings.Contains(ua, "firefox") && strings.Contains(ua, "android") && strings.Contains(ua, "mobile") {
+		return "firefox-android"
+	}
+	// Then check for Chrome on Android
+	if strings.Contains(ua, "chrome") && strings.Contains(ua, "android") && strings.Contains(ua, "mobile") {
+		return "chrome-android"
+	}
+	// Then check for iOS devices
 	if strings.Contains(ua, "iphone se") {
 		return "small"
 	}
@@ -91,11 +88,16 @@ func detectDeviceType(userAgent string) string {
 	if strings.Contains(ua, "iphone") {
 		return "medium"
 	}
+	// Default to large for desktops/tablets
 	return "large"
 }
 
 func getResponsiveCSS(userAgent string) template.CSS {
 	switch detectDeviceType(userAgent) {
+	case "firefox-android":
+		return template.CSS(cssFirefoxAndroid)
+	case "chrome-android":
+		return template.CSS(cssChromeAndroid)
 	case "small":
 		return template.CSS(cssSmall)
 	case "medium":
@@ -105,36 +107,96 @@ func getResponsiveCSS(userAgent string) template.CSS {
 	}
 }
 
+func generateMetaTags() template.HTML {
+	metaTags := `
+    <!-- Basic Meta Tags -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Simple chat application">
+    <meta name="author" content="Chat App">
+    
+    <!-- Empty Favicon to prevent browser requests -->
+    <link rel="icon" href="data:;base64,=">
+    
+    <!-- Apple iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Chat App">
+    <meta name="format-detection" content="telephone=no">
+    
+    <!-- Google Chrome Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="application-name" content="Chat App">
+    
+    <!-- Microsoft Edge/IE Meta Tags -->
+    <meta name="msapplication-TileColor" content="#ffffff">
+    <meta name="msapplication-config" content="none">
+    <meta name="msapplication-starturl" content="/">
+    
+    <!-- Firefox Meta Tags -->
+    <meta name="theme-color" content="#ffffff">
+    <meta name="browsermode" content="application">
+    
+    <!-- Opera Meta Tags -->
+    <meta name="theme-color" content="#ffffff">
+    
+    <!-- Security Meta Tags -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="referrer" content="no-referrer">
+        
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Chat App">
+    <meta property="og:description" content="Simple chat application">
+    <meta property="og:site_name" content="Chat App">
+    `
+	return template.HTML(metaTags)
+}
+
 // --- HTTP Handlers ---
 
 func renderTemplate(w http.ResponseWriter, tmplName string, data PageData) {
-	tmpl, err := template.ParseFiles("templates/" + tmplName + ".html")
+	err := templates.ExecuteTemplate(w, tmplName+".html", data)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func servePage(w http.ResponseWriter, r *http.Request) {
+	// Check for Chrome Android first to set the flag correctly
+	isChromeAndroid := detectDeviceType(r.Header.Get("User-Agent")) == "chrome-android"
+
+	// Generate meta tags
+	metaTags := generateMetaTags()
+
+	if r.URL.Path == "/" {
+		if r.Method == "POST" {
+			// Generate a new room ID and redirect - moved from frontend
+			roomID := generateUUID()
+			http.Redirect(w, r, "/"+roomID, http.StatusSeeOther)
+			return
+		}
+		// For GET request, serve the landing page
+		data := PageData{
+			ResponsiveCSS:   getResponsiveCSS(r.Header.Get("User-Agent")),
+			IsChromeAndroid: isChromeAndroid,
+			MetaTags:        metaTags,
+		}
+		renderTemplate(w, "index", data)
 		return
 	}
-	err = tmpl.Execute(w, data)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
 
-func serveHome(w http.ResponseWriter, r *http.Request) {
-	data := PageData{
-		ResponsiveCSS: getResponsiveCSS(r.Header.Get("User-Agent")),
-	}
-	renderTemplate(w, "index", data)
-}
-
-func serveChat(w http.ResponseWriter, r *http.Request) {
 	roomID := strings.TrimPrefix(r.URL.Path, "/")
 	if roomID == "" {
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
 	data := PageData{
-		RoomID:        roomID,
-		ResponsiveCSS: getResponsiveCSS(r.Header.Get("User-Agent")),
+		RoomID:          roomID,
+		ResponsiveCSS:   getResponsiveCSS(r.Header.Get("User-Agent")),
+		IsChromeAndroid: isChromeAndroid,
+		MetaTags:        metaTags,
 	}
 	renderTemplate(w, "chat", data)
 }
@@ -147,7 +209,7 @@ func handleWebSocket(ws *websocket.Conn) {
 		ws.Close()
 		return
 	}
-	userID := generateShortID()
+	userID := generateUUID()
 
 	roomsMutex.Lock()
 	room, exists := rooms[roomID]
@@ -180,8 +242,6 @@ func handleWebSocket(ws *websocket.Conn) {
 		formattedMsg := userID + ": " + msg
 
 		room.Mutex.Lock()
-		// --- FIX IS HERE ---
-		// The message is now sent to ALL clients, including the sender.
 		for client := range room.Clients {
 			websocket.Message.Send(client.Conn, formattedMsg)
 		}
@@ -192,9 +252,11 @@ func handleWebSocket(ws *websocket.Conn) {
 // --- Main Function ---
 
 func main() {
-	http.HandleFunc("/", serveHome)
-	http.HandleFunc("/chat/", serveChat)
+	http.HandleFunc("/", servePage)
 	http.Handle("/ws", websocket.Handler(handleWebSocket))
+
+	// Serve static files if needed
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
 	http.ListenAndServe(":8080", nil)
 }
