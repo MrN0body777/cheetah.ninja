@@ -1,95 +1,221 @@
 <!DOCTYPE html>
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    {{.MetaTags}}
     <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-        }
-        body {
-            font-family:monospace;
-            display:flex;
-            flex-direction:column;
-            min-height: 100vh;
+        html, body { margin:0; padding:0; width:100%; height:100%; }
+        body { 
+            font-family:monospace; 
+            display:flex; 
+            flex-direction:column; 
+            min-height:100vh; 
             overflow:hidden;
-            background-color: #fff; /* Add a background */
         }
-        #header { flex-shrink:0; text-align:right; padding:12px; }
-        #messages { flex:1; overflow:auto; min-height:0; padding:12px; font-size:16px; line-height:1.4; }
-        #inputArea { flex-shrink:0; display:flex; align-items:center; gap:12px; padding:12px; }
-        
-        /* --- DEBUG STYLES FOR INPUT --- */
-        #msgInput {
-            flex:1;
-            padding:12px 16px;
-            font-size:16px; /* 16px is important to prevent zoom on focus */
-            border-radius:6px;
-            border: 1px solid #ccc; /* Explicit border */
-            background-color: #fff; /* Explicit background */
-            -webkit-appearance: none; /* Remove iOS styling */
-            z-index: 10; /* Ensure it's on top */
+        #header { 
+            flex-shrink:0; 
+            text-align:right; 
+            padding:0px;
+            display:flex; 
+            justify-content:flex-end; 
+            align-items:center; 
+            gap:2px;
+            background: white;
+            position: fixed;
+            top: ;
+            left: 0;
+            right: 0;
+            z-index: 12;
+            height: 50px;
         }
-        /* --- END DEBUG STYLES --- */
-
-        #send-controls { display: flex; align-items: center; gap: 8px; }
-        #charCount { font-size:16px; user-select:none; }
-        #sendBtn, #shareBtn { padding:12px 20px; font-size:16px; border-radius:6px; white-space:nowrap; cursor: pointer; }
-        .msg { margin-bottom:6px; word-break:break-word; }
+        #messages { 
+            flex: 1; 
+            overflow:auto; 
+            padding: 90px 12px 0 12px;
+            font-size:16px; 
+            line-height:1.4;
+        }
+        #inputArea { 
+            flex-shrink:0; 
+            display:flex; 
+            align-items:center; 
+            gap:8px; 
+            padding:12px; 
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            border-top: 1px solid #e5e5e5;
+        }
+        #msgInput { 
+            flex:1; 
+            padding:12px 16px; 
+            font-size:16px; 
+            border-radius:6px; 
+            border:1px solid #ccc; 
+            -webkit-appearance:none; 
+        }
+        #sendBtn, #shareBtn { 
+            padding:12px 16px; 
+            font-size:16px; 
+            border-radius:6px; 
+            white-space:nowrap; 
+            cursor:pointer; 
+            flex-shrink:0; 
+            border: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .msg { 
+            margin-bottom:6px; 
+            word-break:break-word; 
+        }
+        #charCount { 
+            font-size:14px; 
+            user-select:none; 
+            flex-shrink:0; 
+            min-width:45px; 
+            text-align:right; 
+        }
+        #share-feedback { 
+            font-size:14px; 
+            color:#555; 
+            opacity:0; 
+            transition:opacity 0.3s ease-in-out; 
+            position:absolute; 
+            top:50%; 
+            left:50%; 
+            transform:translate(-50%, -50%); 
+            background-color:rgba(0,0,0,0.7); 
+            color:white; 
+            padding:8px 12px; 
+            border-radius:4px; 
+        }
+        #share-feedback.visible { 
+            opacity:1; 
+        }
         {{.ResponsiveCSS}}
     </style>
 </head>
 <body>
-<div id="header"><button id="shareBtn" onclick="shareLink()">Share Invite Link</button></div>
+<div id="header">
+    <button id="shareBtn">Share Invite Link</button>
+    <span id="share-feedback"></span>
+</div>
 <div id="messages"></div>
-<form id="inputForm" onsubmit="send(); return false;">
+<form id="inputForm">
     <div id="inputArea">
-        <!-- DEBUG: Removed autocomplete and enterkeyhint attributes -->
-        <input id="msgInput" type="text" maxlength="160" placeholder="Type message...">
-        <div id="send-controls"><span id="charCount">0/160</span><button id="sendBtn" type="submit">Send</button></div>
+        <input id="msgInput" type="text" maxlength="160" placeholder="Type message..." autocomplete="off">
+        <span id="charCount">0/160</span>
+        <button id="sendBtn" type="submit">Send</button>
     </div>
 </form>
 <script>
-const roomID = "{{.RoomID}}";
+(() => {
+    const roomID = "{{.RoomID}}";
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${location.host}/ws?room=${roomID}`;
 
-const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-const ws = new WebSocket(wsProtocol + '//' + location.host + '/ws?room=' + roomID);
+    const elements = {
+        messages: document.getElementById('messages'),
+        input: document.getElementById('msgInput'),
+        charCount: document.getElementById('charCount'),
+        shareFeedback: document.getElementById('share-feedback'),
+        form: document.getElementById('inputForm'),
+        header: document.getElementById('header')
+    };
 
-const msgs = document.getElementById('messages');
-const input = document.getElementById('msgInput');
-const count = document.getElementById('charCount');
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = (event) => addMessage(event.data);
 
-function addMessage(text) {
-    const d = document.createElement('div');
-    d.className = 'msg'; d.textContent = text;
-    msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-}
+    const addMessage = (text) => {
+        const messageEl = document.createElement('div');
+        messageEl.className = 'msg';
+        messageEl.textContent = text;
+        elements.messages.appendChild(messageEl);
+        elements.messages.scrollTop = elements.messages.scrollHeight;
+    };
 
-ws.onmessage = e => addMessage(e.data);
+    const sendMessage = () => {
+        const text = elements.input.value.trim();
+        if (text) {
+            ws.send(text);
+            elements.input.value = '';
+            updateCharCount();
+        }
+    };
 
-function send(){
-    if(input.value){
-        ws.send(input.value);
-        input.value=''; updateCount();
-    }
-}
+    const updateCharCount = () => {
+        elements.charCount.textContent = `${elements.input.value.length}/160`;
+    };
+    
+    // --- CHANGE: Made the fallback more robust to always show feedback ---
+    const fallbackCopyToClipboard = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.top = "0";
+        textArea.style.left = "0";
+        textArea.style.position = "fixed";
 
-function updateCount(){ count.textContent = input.value.length + '/160'; }
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
 
-function shareLink(){
-    const url = location.href;
-    navigator.clipboard.writeText(url).then(() => alert('Link copied!'))
-    .catch(() => prompt('Copy this link:', url));
-}
+        try {
+            const successful = document.execCommand('copy');
+            // We don't need to check for 'successful' here. We'll assume it worked
+            // to provide better user feedback, unless it throws a hard error.
+        } catch (err) {
+            console.error('Fallback: Oops, unable to copy', err);
+            // As a last resort, use the prompt
+            prompt('Copy this link:', text);
+            document.body.removeChild(textArea);
+            return; // Exit early if we showed a prompt
+        }
 
-input.addEventListener('input', updateCount);
+        document.body.removeChild(textArea);
+        // Always show feedback if we didn't hit the prompt
+        showShareFeedback();
+    };
 
-// DEBUG: Removed the automatic focus call
-// input.focus(); 
-updateCount();
+    const showShareFeedback = () => {
+        elements.shareFeedback.textContent = "Link saved!";
+        elements.shareFeedback.classList.add('visible');
+        setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
+    };
+    
+    const shareLink = () => {
+        const textToCopy = location.href;
+        if (!navigator.clipboard) {
+            fallbackCopyToClipboard(textToCopy);
+            return;
+        }
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            showShareFeedback();
+        }).catch((err) => {
+            console.error('Modern API failed, using fallback.', err);
+            fallbackCopyToClipboard(textToCopy);
+        });
+    };
+
+    elements.form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        sendMessage();
+    });
+    elements.input.addEventListener('input', updateCharCount);
+    document.getElementById('shareBtn').addEventListener('click', shareLink);
+
+    elements.input.focus();
+    updateCharCount();
+
+    // --- CHANGE: Device-specific fix is now conditionally rendered by the backend ---
+    {{if .NeedsChromeAndroidFix}}
+    const input = document.getElementById('msgInput');
+    input.addEventListener('mousedown', function(e) {
+        if (document.activeElement !== input) {
+            e.preventDefault();
+            this.focus();
+        }
+    });
+    input.addEventListener('touchstart', function(e) {
+        this.focus();
+    });
+    {{end}}
+})();
 </script>
 </body>
 </html>

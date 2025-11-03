@@ -1,23 +1,26 @@
 <!DOCTYPE html>
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    {{.MetaTags}}
     <style>
-        body { margin:0; padding:0; font-family:monospace; display:flex; justify-content:center; align-items:center; height:100vh; }
-        button { padding:12px 20px; font-size:16px; border-radius:6px; cursor: pointer; }
-        {{.ResponsiveCSS}}
+        html, body { margin:0; padding:0; width:100%; height:100%; }
+        body { 
+            display:flex; 
+            justify-content:center; 
+            align-items:center; 
+            min-height:100vh;
+        }
+        button { 
+            padding:14px 24px; 
+            font-size:18px; 
+            border-radius:6px; 
+            cursor:pointer;
+            border: none;
+        }
     </style>
 </head>
 <body>
-<button onclick="startChat()">Start Private Chat</button>
-<script>
-function generateShortID() {
-    return Math.random().toString(36).substring(2, 10);
-}
-function startChat(){
-    location.href='/chat/' + generateShortID();
-}
-</script>
+    <form method="POST" action="/">
+        <button type="submit">Start Chat</button>
+    </form>
 </body>
 </html>
