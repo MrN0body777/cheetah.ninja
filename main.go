@@ -64,7 +64,6 @@ func detectDeviceType(userAgent string) string {
 	if strings.Contains(ua, "chrome") && strings.Contains(ua, "android") && strings.Contains(ua, "mobile") {
 		return "chrome-android"
 	}
-	// Default for all other devices (iOS, Desktop, etc.)
 	return "default"
 }
 
@@ -84,30 +83,42 @@ func needsChromeAndroidFocusFix(userAgent string) bool {
 	return strings.Contains(ua, "chrome") && strings.Contains(ua, "android") && strings.Contains(ua, "mobile")
 }
 
-// --- CHANGE: generateMetaTags now takes userAgent to make decisions on the backend ---
+// --- CHANGE: New backend-only fix for Firefox using border-top ---
 func generateMetaTags(userAgent string) template.HTML {
 	ua := strings.ToLower(userAgent)
 
-	// --- CHANGE: Backend logic to conditionally include the theme-color tag ---
-	// We only include it if it's NOT Firefox on Android.
+	// Fix for Firefox moving URL bar to the bottom.
 	var themeColorTag string
 	if !(strings.Contains(ua, "firefox") && strings.Contains(ua, "android")) {
 		themeColorTag = `<meta name="theme-color" content="#ffffff">`
 	}
 
-	// This style block ensures the layout is correct on all iPhones, including those with a notch.
-	iOSSafeAreaCSS := `
-    <style>
-        @supports (padding: max(0px)) {
-            #header {
-                top: env(safe-area-inset-top) !important;
+	// Patch for Firefox's layout issue ONLY.
+	var firefoxPatch string
+	if strings.Contains(ua, "firefox") {
+		firefoxPatch = `
+        <style>
+            /* Use a transparent border-top to create space, which is more reliable than padding */
+            #messages { 
+                border-top: 50px solid transparent !important; 
+                padding-top: 40px !important; /* Reduce the original padding to account for the new border */
             }
-            #messages {
-                padding-top: calc(50px + env(safe-area-inset-top)) !important;
+        </style>
+        `
+	}
+
+	// Patch for iOS safe area for all browsers that support it.
+	var iOSSafeAreaPatch string
+	if strings.Contains(ua, "safari") || strings.Contains(ua, "mobile") {
+		iOSSafeAreaPatch = `
+        <style>
+            @supports (padding: max(0px)) {
+                #header { top: env(safe-area-inset-top) !important; }
+                #messages { padding-top: calc(90px + env(safe-area-inset-top)) !important; }
             }
-        }
-    </style>
-    `
+        </style>
+        `
+	}
 
 	metaTags := `
     <meta charset="UTF-8">
@@ -123,7 +134,7 @@ func generateMetaTags(userAgent string) template.HTML {
     <!-- Google Chrome Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes">
     ` + themeColorTag + `
-    ` + iOSSafeAreaCSS
+    ` + firefoxPatch + iOSSafeAreaPatch
 	return template.HTML(metaTags)
 }
 
@@ -138,7 +149,6 @@ func renderTemplate(w http.ResponseWriter, tmplName string, data PageData) {
 
 func servePage(w http.ResponseWriter, r *http.Request) {
 	userAgent := r.Header.Get("User-Agent")
-	// --- CHANGE: Pass userAgent to generateMetaTags ---
 	metaTags := generateMetaTags(userAgent)
 
 	if r.URL.Path == "/" {
