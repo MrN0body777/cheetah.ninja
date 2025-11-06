@@ -2,92 +2,40 @@
 <head>
     {{.MetaTags}}
     <style>
-        html, body { margin:0; padding:0; width:100%; height:100%; }
-        body { 
-            font-family:monospace; 
-            display:flex; 
-            flex-direction:column; 
-            min-height:100vh; 
-            overflow:hidden;
-        }
+        html, body { margin:0; padding:0; width:100%; height:100%; font-family:monospace; }
+        body { display:flex; flex-direction:column; min-height:100vh; overflow:hidden; }
         #header { 
             flex-shrink:0; 
-            text-align:right; 
-            padding:0px;
-            display:flex; 
-            justify-content:flex-end; 
-            align-items:center; 
-            gap:2px;
-            background: white;
-            position: fixed;
-            top: ;
-            left: 0;
-            right: 0;
-            z-index: 12;
-            height: 50px;
+            display:flex; justify-content:flex-end; align-items:center; gap:2px;
+            background: white; padding:0; position: fixed; top: 0; left: 0; right: 0; z-index: 12; height: 50px;
         }
         #messages { 
-            flex: 1; 
-            overflow:auto; 
-            padding: 90px 12px 0 12px;
-            font-size:16px; 
-            line-height:1.4;
+            flex: 1; overflow:auto; padding: 90px 12px 0 12px; font-size:16px; line-height:1.4;
         }
         #inputArea { 
             flex-shrink:0; 
-            display:flex; 
-            align-items:center; 
-            gap:8px; 
-            padding:12px; 
-            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            display:flex; align-items:center; gap:8px; 
+            padding:12px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
             border-top: 1px solid #e5e5e5;
         }
         #msgInput { 
-            flex:1; 
-            padding:12px 16px; 
-            font-size:16px; 
-            border-radius:6px; 
-            border:1px solid #ccc; 
-            -webkit-appearance:none; 
+            flex:1; padding:12px 16px; font-size:16px; border-radius:6px; border:1px solid #ccc; -webkit-appearance:none; 
         }
         #sendBtn, #shareBtn { 
-            padding:12px 16px; 
-            font-size:16px; 
-            border-radius:6px; 
-            white-space:nowrap; 
-            cursor:pointer; 
-            flex-shrink:0; 
-            border: none;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding:12px 16px; font-size:16px; border-radius:6px; white-space:nowrap; cursor:pointer; 
+            flex-shrink:0; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        .msg { 
-            margin-bottom:6px; 
-            word-break:break-word; 
-        }
+        .msg { margin-bottom:6px; word-break:break-word; }
+        .system-msg { margin-bottom:6px; word-break:break-word; color: #d32f2f; font-style: italic; }
         #charCount { 
-            font-size:14px; 
-            user-select:none; 
-            flex-shrink:0; 
-            min-width:45px; 
-            text-align:right; 
+            font-size:14px; user-select:none; flex-shrink:0; min-width:45px; text-align:right; 
         }
         #share-feedback { 
-            font-size:14px; 
-            color:#555; 
-            opacity:0; 
-            transition:opacity 0.3s ease-in-out; 
-            position:absolute; 
-            top:50%; 
-            left:50%; 
-            transform:translate(-50%, -50%); 
-            background-color:rgba(0,0,0,0.7); 
-            color:white; 
-            padding:8px 12px; 
-            border-radius:4px; 
+            font-size:14px; color:#555; opacity:0; transition:opacity 0.3s ease-in-out; 
+            position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); 
+            background-color:rgba(0,0,0,0.7); color:white; padding:8px 12px; border-radius:4px; 
         }
-        #share-feedback.visible { 
-            opacity:1; 
-        }
+        #share-feedback.visible { opacity:1; }
         {{.ResponsiveCSS}}
     </style>
 </head>
@@ -116,18 +64,24 @@
         charCount: document.getElementById('charCount'),
         shareFeedback: document.getElementById('share-feedback'),
         form: document.getElementById('inputForm'),
-        header: document.getElementById('header')
     };
 
     const ws = new WebSocket(wsUrl);
-    ws.onmessage = (event) => addMessage(event.data);
-
-    const addMessage = (text) => {
-        const messageEl = document.createElement('div');
-        messageEl.className = 'msg';
-        messageEl.textContent = text;
-        elements.messages.appendChild(messageEl);
-        elements.messages.scrollTop = elements.messages.scrollHeight;
+    ws.onmessage = (event) => {
+        const message = event.data;
+        if (message.startsWith("System:")) {
+            const messageEl = document.createElement('div');
+            messageEl.className = 'system-msg';
+            messageEl.textContent = message;
+            elements.messages.appendChild(messageEl);
+            elements.messages.scrollTop = elements.messages.scrollHeight;
+        } else {
+            const messageEl = document.createElement('div');
+            messageEl.className = 'msg';
+            messageEl.textContent = message;
+            elements.messages.appendChild(messageEl);
+            elements.messages.scrollTop = elements.messages.scrollHeight;
+        }
     };
 
     const sendMessage = () => {
@@ -135,75 +89,78 @@
         if (text) {
             ws.send(text);
             elements.input.value = '';
-            updateCharCount();
+            const length = elements.input.value.length;
+            elements.charCount.textContent = `${length}/160`;
+            elements.charCount.style.color = '';
         }
-    };
-
-    const updateCharCount = () => {
-        elements.charCount.textContent = `${elements.input.value.length}/160`;
-    };
-    
-    const fallbackCopyToClipboard = (text) => {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.top = "0";
-        textArea.style.left = "0";
-        textArea.style.position = "fixed";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-            document.execCommand('copy');
-        } catch (err) {
-            console.error('Fallback: Oops, unable to copy', err);
-            prompt('Copy this link:', text);
-            document.body.removeChild(textArea);
-            return;
-        }
-        document.body.removeChild(textArea);
-        showShareFeedback();
-    };
-
-    const showShareFeedback = () => {
-        elements.shareFeedback.textContent = "Link saved!";
-        elements.shareFeedback.classList.add('visible');
-        setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
     };
     
     const shareLink = () => {
         const textToCopy = location.href;
-        if (!navigator.clipboard) {
-            fallbackCopyToClipboard(textToCopy);
-            return;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                elements.shareFeedback.textContent = "Link saved!";
+                elements.shareFeedback.classList.add('visible');
+                setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
+            }).catch(() => {
+                const textArea = document.createElement("textarea");
+                textArea.value = textToCopy;
+                textArea.style.position = "fixed";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    elements.shareFeedback.textContent = "Link saved!";
+                    elements.shareFeedback.classList.add('visible');
+                    setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
+                } catch (err) {
+                    console.error('Fallback: Oops, unable to copy', err);
+                    prompt('Copy this link:', textToCopy);
+                }
+                document.body.removeChild(textArea);
+            });
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = textToCopy;
+            textArea.style.position = "fixed";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                elements.shareFeedback.textContent = "Link saved!";
+                elements.shareFeedback.classList.add('visible');
+                setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
+            } catch (err) {
+                console.error('Fallback: Oops, unable to copy', err);
+                prompt('Copy this link:', textToCopy);
+            }
+            document.body.removeChild(textArea);
         }
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            showShareFeedback();
-        }).catch((err) => {
-            console.error('Modern API failed, using fallback.', err);
-            fallbackCopyToClipboard(textToCopy);
-        });
     };
 
-    elements.form.addEventListener('submit', (event) => {
-        event.preventDefault();
+    elements.form.addEventListener('submit', (e) => {
+        e.preventDefault();
         sendMessage();
     });
-    elements.input.addEventListener('input', updateCharCount);
+    elements.input.addEventListener('input', () => {
+        const length = elements.input.value.length;
+        elements.charCount.textContent = `${length}/160`;
+        elements.charCount.style.color = (length > 140) ? '#d32f2f' : '';
+    });
     document.getElementById('shareBtn').addEventListener('click', shareLink);
 
     elements.input.focus();
-    updateCharCount();
+    const length = elements.input.value.length;
+    elements.charCount.textContent = `${length}/160`;
 
     {{if .NeedsChromeAndroidFix}}
-    const input = document.getElementById('msgInput');
-    input.addEventListener('mousedown', function(e) {
-        if (document.activeElement !== input) {
+    elements.input.addEventListener('mousedown', function(e) {
+        if (document.activeElement !== this) {
             e.preventDefault();
             this.focus();
         }
-    });
-    input.addEventListener('touchstart', function(e) {
-        this.focus();
     });
     {{end}}
 })();

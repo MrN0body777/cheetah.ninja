@@ -1,19 +1,19 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"html/template"
 	"net/http"
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
 )
 
 var roomsMutex sync.Mutex
 var rooms = make(map[string]*Room)
 
-// Load templates from the templates folder
 var templates = template.Must(template.ParseFiles("templates/index.html", "templates/chat.html"))
 
 type Room struct {
@@ -33,7 +33,6 @@ type PageData struct {
 	NeedsChromeAndroidFix bool
 }
 
-// Device-specific CSS constants
 const cssFirefoxAndroid = `
 body { font-size:14px; }
 #msgInput { font-size:14px; padding:10px 14px; }
@@ -52,8 +51,14 @@ body { font-size:16px; }
 #sendBtn, #shareBtn { font-size:16px; padding:12px 20px; }
 `
 
-func generateUUID() string {
-	return uuid.New().String()
+const maxMessageLength = 160
+
+func generateID() string {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(bytes)
 }
 
 func detectDeviceType(userAgent string) string {
@@ -83,31 +88,26 @@ func needsChromeAndroidFocusFix(userAgent string) bool {
 	return strings.Contains(ua, "chrome") && strings.Contains(ua, "android") && strings.Contains(ua, "mobile")
 }
 
-// --- CHANGE: New backend-only fix for Firefox using border-top ---
 func generateMetaTags(userAgent string) template.HTML {
 	ua := strings.ToLower(userAgent)
 
-	// Fix for Firefox moving URL bar to the bottom.
 	var themeColorTag string
 	if !(strings.Contains(ua, "firefox") && strings.Contains(ua, "android")) {
 		themeColorTag = `<meta name="theme-color" content="#ffffff">`
 	}
 
-	// Patch for Firefox's layout issue ONLY.
 	var firefoxPatch string
 	if strings.Contains(ua, "firefox") {
 		firefoxPatch = `
         <style>
-            /* Use a transparent border-top to create space, which is more reliable than padding */
             #messages { 
                 border-top: 50px solid transparent !important; 
-                padding-top: 40px !important; /* Reduce the original padding to account for the new border */
+                padding-top: 40px !important;
             }
         </style>
         `
 	}
 
-	// Patch for iOS safe area for all browsers that support it.
 	var iOSSafeAreaPatch string
 	if strings.Contains(ua, "safari") || strings.Contains(ua, "mobile") {
 		iOSSafeAreaPatch = `
@@ -125,20 +125,14 @@ func generateMetaTags(userAgent string) template.HTML {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="Simple chat application">
     <link rel="icon" href="data:;base64,=">
-    
-    <!-- Apple iOS Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Chat App">
-    
-    <!-- Google Chrome Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes">
     ` + themeColorTag + `
     ` + firefoxPatch + iOSSafeAreaPatch
 	return template.HTML(metaTags)
 }
-
-// --- HTTP Handlers ---
 
 func renderTemplate(w http.ResponseWriter, tmplName string, data PageData) {
 	err := templates.ExecuteTemplate(w, tmplName+".html", data)
@@ -153,7 +147,7 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Path == "/" {
 		if r.Method == "POST" {
-			roomID := generateUUID()
+			roomID := generateID()
 			http.Redirect(w, r, "/"+roomID, http.StatusSeeOther)
 			return
 		}
@@ -180,15 +174,13 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "chat", data)
 }
 
-// --- WebSocket Logic (Unchanged) ---
-
 func handleWebSocket(ws *websocket.Conn) {
 	roomID := ws.Request().URL.Query().Get("room")
 	if roomID == "" {
 		ws.Close()
 		return
 	}
-	userID := generateUUID()
+	userID := generateID()
 
 	roomsMutex.Lock()
 	room, exists := rooms[roomID]
@@ -218,17 +210,22 @@ func handleWebSocket(ws *websocket.Conn) {
 		if err != nil {
 			break
 		}
+
+		if len(msg) > maxMessageLength {
+			errorMsg := "System: Message exceeds the 160 character limit and was not sent."
+			websocket.Message.Send(client.Conn, errorMsg)
+			continue
+		}
+
 		formattedMsg := userID + ": " + msg
 
 		room.Mutex.Lock()
-		for client := range room.Clients {
-			websocket.Message.Send(client.Conn, formattedMsg)
+		for clientToSendTo := range room.Clients {
+			websocket.Message.Send(clientToSendTo.Conn, formattedMsg)
 		}
 		room.Mutex.Unlock()
 	}
 }
-
-// --- Main Function ---
 
 func main() {
 	http.HandleFunc("/", servePage)
