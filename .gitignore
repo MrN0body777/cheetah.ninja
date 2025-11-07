@@ -78,3 +78,6 @@ temp/
 
 # Nohup output
 nohup.out
+# Local configuration files (secrets)
+Makefile
+.env
