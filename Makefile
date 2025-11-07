@@ -5,13 +5,12 @@
 APP_NAME := go-server
 GOCMD := go
 GOBUILD := $(GOCMD) build
-BUILDDIR := build
+BUILDDIR := bin
 
 # --- Deployment Settings ---
 SERVER_USER := ubuntu
-SERVER_HOST := ec2-51-21-51-104.eu-north-1.compute.amazonaws.com
-SERVER_PATH := /home/ubuntu/go-server
-
+SERVER_HOST := your-aws-server-ip-or-domain
+SERVER_PATH := /opt/go-server
 PEM_KEY := /Users/rr/Documents/cwas.pem
 
 ################################################################################
@@ -20,24 +19,26 @@ PEM_KEY := /Users/rr/Documents/cwas.pem
 
 all: build
 
+# Build the application for Linux (cross-compilation)
 build:
-    @echo "Building $(APP_NAME) for current platform..."
-    $(GOBUILD) -o $(BUILDDIR)/$(APP_NAME) .
+    @echo "Building $(APP_NAME) for linux/amd64..."
+    @mkdir -p $(BUILDDIR)
+    GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILDDIR)/$(APP_NAME) .
 
-# DEPLOYMENT: Copy source to server, then build and restart the service there
-deploy:
-    @echo "Deploying source to $(SERVER_HOST)..."
-    rsync -avz --progress -e "ssh -i $(PEM_KEY)" \
-        --exclude='$(BUILDDIR)' \
-        --exclude='.git/' \
-        --exclude='.DS_Store' \
-        ./ $(SERVER_USER)@$(SERVER_HOST):$(SERVER_PATH)
-    @echo "Source deployed. Building and restarting service on server..."
-    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "cd $(SERVER_PATH) && make && sudo systemctl restart go-server.service"
+# DEPLOYMENT: Copy binary and static files, set permissions, and restart
+deploy: build
+    @echo "Deploying $(APP_NAME) to $(SERVER_HOST)..."
+    # 1. Copy the compiled binary
+    scp -i $(PEM_KEY) $(BUILDDIR)/$(APP_NAME) $(SERVER_USER)@$(SERVER_HOST):$(SERVER_PATH)/
+    # 2. Copy the static 'templates' directory
+    scp -i $(PEM_KEY) -r templates/ $(SERVER_USER)@$(SERVER_HOST):$(SERVER_PATH)/
+    @echo "Files copied. Setting permissions and restarting service..."
+    # 3. Make the binary executable and set ownership, then restart the service
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo chmod +x $(SERVER_PATH)/$(APP_NAME) && sudo chown -R gs:gs $(SERVER_PATH) && sudo systemctl restart go-server.service"
     @echo "Deployment complete."
 
 run:
-    @echo "Running $(APP_NAME)..."
+    @echo "Running $(APP_NAME) locally..."
     $(GOCMD) run .
 
 clean:
