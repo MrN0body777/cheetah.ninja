@@ -4,13 +4,15 @@
 To-do_List::::::::::
 ____________________
 
-reconnect when socket drop
+reconnect when socket drop.        ✅
 
-limit backend to 160 char
+limit backend to 160 char.         ✅
 
 systemd
 
-validated all backend endpoints
+validated all backend endpoints.   ✅
+
+
 
  
  

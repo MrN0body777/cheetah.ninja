@@ -7,7 +7,7 @@
         #header { 
             flex-shrink:0; 
             display:flex; justify-content:flex-end; align-items:center; gap:2px;
-            background: white; padding:0; position: fixed; top: 0; left: 0; right: 0; z-index: 12; height: 50px;
+            background: white; padding:0 10px; position: fixed; top: 0; left: 0; right: 0; z-index: 12; height: 50px;
         }
         #messages { 
             flex: 1; overflow:auto; padding: 90px 12px 0 12px; font-size:16px; line-height:1.4;
@@ -66,27 +66,40 @@
         form: document.getElementById('inputForm'),
     };
 
-    const ws = new WebSocket(wsUrl);
-    ws.onmessage = (event) => {
-        const message = event.data;
-        if (message.startsWith("System:")) {
+    let ws;
+    let reconnectTimeout;
+
+    const connect = () => {
+        clearTimeout(reconnectTimeout);
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+        };
+
+        ws.onmessage = (event) => {
+            const message = event.data;
+            const isSystem = message.startsWith("System:");
             const messageEl = document.createElement('div');
-            messageEl.className = 'system-msg';
+            messageEl.className = isSystem ? 'system-msg' : 'msg';
             messageEl.textContent = message;
             elements.messages.appendChild(messageEl);
             elements.messages.scrollTop = elements.messages.scrollHeight;
-        } else {
-            const messageEl = document.createElement('div');
-            messageEl.className = 'msg';
-            messageEl.textContent = message;
-            elements.messages.appendChild(messageEl);
-            elements.messages.scrollTop = elements.messages.scrollHeight;
-        }
+        };
+
+        ws.onclose = () => {
+            reconnectTimeout = setTimeout(connect, 2000);
+        };
+
+        ws.onerror = (err) => {
+            console.error('WebSocket error:', err);
+            ws.close();
+        };
     };
 
     const sendMessage = () => {
         const text = elements.input.value.trim();
-        if (text) {
+        if (text && ws.readyState === WebSocket.OPEN) {
             ws.send(text);
             elements.input.value = '';
             const length = elements.input.value.length;
@@ -163,6 +176,8 @@
         }
     });
     {{end}}
+
+    connect();
 })();
 </script>
 </body>

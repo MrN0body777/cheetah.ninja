@@ -1,12 +1,14 @@
 package main
 
 import (
-	"crypto/rand"
+	crand "crypto/rand"
 	"encoding/hex"
 	"html/template"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -22,8 +24,10 @@ type Room struct {
 }
 
 type Client struct {
-	Conn   *websocket.Conn
-	UserID string
+	Conn            *websocket.Conn
+	UserID          string
+	lastMessageTime time.Time
+	mutedUntil      time.Time
 }
 
 type PageData struct {
@@ -31,6 +35,38 @@ type PageData struct {
 	ResponsiveCSS         template.CSS
 	MetaTags              template.HTML
 	NeedsChromeAndroidFix bool
+}
+
+// A list of fun messages to send to spammers.
+var funMessages = []string{
+	"System: Whoa there, speedy! The hamster powering the server needs a break.",
+	"System: A wild penguin has appeared and stolen your message.",
+	"System: Error: Boop not found. Please try again later.",
+	"System: You have been placed in a digital timeout. Think about what you've done.",
+	"System: The squirrels are on fire again. Please wait for them to be extinguished.",
+	"System: You're typing so fast the keyboard is getting dizzy.",
+	"System: My circuits are overheating! Please slow down.",
+	"System: A pack of capybaras has formed a protective circle around the server. Please wait.",
+	"System: Your message was intercepted by a flock of geese. They were not impressed.",
+	"System: The server's cat is walking on the keyboard again. Please stand by.",
+	"System: A sloth is delivering your message. It will arrive... eventually.",
+	"System: The bit bucket is full. Please try again after we empty it.",
+	"System: A packet gremlin has misplaced your data. We're negotiating with it now.",
+	"System: Fatal error: The coffee is empty. Aborting message.",
+	"System: Your message has been queued behind 47 cat videos. Please wait.",
+	"System: The color blue is currently offline. Please try a different color.",
+	"System: Message rejected for containing too much Tuesday.",
+	"System: The quantum state of your message is both sent and not sent. Please observe.",
+	"System: Alert! The vibes are off. Please recalibrate and try again.",
+	"System: You have exceeded the legal limit for awesome. Please slow down.",
+	"System: Your typing privileges have been temporarily revoked. See you in 15 seconds.",
+	"System: A 404 error occurred. Your message was not found.",
+	"System: It's not a bug, it's a feature. You've found the rate-limiting feature.",
+	"System: Have you tried turning it off and on again? Please wait 15 seconds to do so.",
+	"System: The ninjas at cheetah.ninja have deemed your message unworthy. Try again later.",
+	"System: A cheetah-ninja has intercepted your message for being too slow. Irony.",
+	"System: DNS propagation for your message is taking longer than expected. Please stand by.",
+	"System: Null Pointer Exception at line 'send message'. Please reboot your enthusiasm.",
 }
 
 const cssFirefoxAndroid = `
@@ -52,13 +88,26 @@ body { font-size:16px; }
 `
 
 const maxMessageLength = 160
+const idLength = 32
+
+// Rate limiting constants
+const minMessageInterval = 1 * time.Second // Minimum time between messages.
+const muteDuration = 15 * time.Second      // How long to mute a spammer.
 
 func generateID() string {
 	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
+	if _, err := crand.Read(bytes); err != nil {
 		panic(err)
 	}
 	return hex.EncodeToString(bytes)
+}
+
+func isValidID(id string) bool {
+	if len(id) != idLength {
+		return false
+	}
+	_, err := hex.DecodeString(id)
+	return err == nil
 }
 
 func detectDeviceType(userAgent string) string {
@@ -161,10 +210,11 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	roomID := strings.TrimPrefix(r.URL.Path, "/")
-	if roomID == "" {
+	if !isValidID(roomID) {
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
+
 	data := PageData{
 		RoomID:                roomID,
 		ResponsiveCSS:         getResponsiveCSS(userAgent),
@@ -176,7 +226,7 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 
 func handleWebSocket(ws *websocket.Conn) {
 	roomID := ws.Request().URL.Query().Get("room")
-	if roomID == "" {
+	if !isValidID(roomID) {
 		ws.Close()
 		return
 	}
@@ -211,11 +261,33 @@ func handleWebSocket(ws *websocket.Conn) {
 			break
 		}
 
-		if len(msg) > maxMessageLength {
-			errorMsg := "System: Message exceeds the 160 character limit and was not sent."
-			websocket.Message.Send(client.Conn, errorMsg)
+		msg = strings.TrimSpace(msg)
+		if len(msg) == 0 || len(msg) > maxMessageLength {
+			if len(msg) > maxMessageLength {
+				errorMsg := "System: Message exceeds the 160 character limit and was not sent."
+				websocket.Message.Send(client.Conn, errorMsg)
+			}
 			continue
 		}
+
+		now := time.Now()
+
+		// Check if the client is muted.
+		if now.Before(client.mutedUntil) {
+			continue // Ignore messages from muted clients.
+		}
+
+		// Check for spamming.
+		if !client.lastMessageTime.IsZero() && now.Sub(client.lastMessageTime) < minMessageInterval {
+			// Spam detected! Mute the client and send a fun message.
+			client.mutedUntil = now.Add(muteDuration)
+			funMsg := funMessages[rand.Intn(len(funMessages))]
+			websocket.Message.Send(client.Conn, funMsg)
+			continue
+		}
+
+		// Update the last message time for this client.
+		client.lastMessageTime = now
 
 		formattedMsg := userID + ": " + msg
 
@@ -228,6 +300,9 @@ func handleWebSocket(ws *websocket.Conn) {
 }
 
 func main() {
+	// Seed the random number generator for message selection.
+	rand.Seed(time.Now().UnixNano())
+
 	http.HandleFunc("/", servePage)
 	http.Handle("/ws", websocket.Handler(handleWebSocket))
 	http.ListenAndServe(":8080", nil)
