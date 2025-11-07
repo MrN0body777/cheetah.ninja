@@ -3,6 +3,7 @@ package main
 import (
 	crand "crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"html/template"
 	"math/rand"
 	"net/http"
@@ -26,6 +27,7 @@ type Room struct {
 type Client struct {
 	Conn            *websocket.Conn
 	UserID          string
+	DisplayName     string
 	lastMessageTime time.Time
 	mutedUntil      time.Time
 }
@@ -69,6 +71,21 @@ var funMessages = []string{
 	"System: Null Pointer Exception at line 'send message'. Please reboot your enthusiasm.",
 }
 
+// Word lists for generating usernames.
+var adjectives = []string{
+	"swift", "silent", "shadow", "stealth", "quick", "phantom", "dusk", "night",
+	"golden", "wind", "sable", "solar", "crimson", "obsidian", "azure", "echo",
+	"rapid", "leopard", "sand", "tempest", "invisible", "blade", "gale", "twilight",
+	"zenith", "void", "cobalt", "emerald", "iron", "frost", "storm", "wild",
+}
+
+var animals = []string{
+	"pounce", "claw", "dash", "ghost", "fist", "stalker", "runner", "strike",
+	"jaws", "fade", "viper", "dancer", "whisper", "flare", "ninja", "hunter",
+	"cat", "tiger", "panther", "cheetah", "leopard", "lynx", "jaguar", "mongoose",
+	"cobra", "falcon", "eagle", "wolf", "fox", "shark", "hawk", "owl",
+}
+
 const cssFirefoxAndroid = `
 body { font-size:14px; }
 #msgInput { font-size:14px; padding:10px 14px; }
@@ -91,8 +108,8 @@ const maxMessageLength = 160
 const idLength = 32
 
 // Rate limiting constants
-const minMessageInterval = 1 * time.Second // Minimum time between messages.
-const muteDuration = 15 * time.Second      // How long to mute a spammer.
+const minMessageInterval = 750 * time.Millisecond // Minimum time between messages.
+const muteDuration = 10 * time.Second             // How long to mute a spammer.
 
 func generateID() string {
 	bytes := make([]byte, 16)
@@ -100,6 +117,14 @@ func generateID() string {
 		panic(err)
 	}
 	return hex.EncodeToString(bytes)
+}
+
+// generateDisplayName creates a random username in the format "adjective_animal##".
+func generateDisplayName() string {
+	adj := adjectives[rand.Intn(len(adjectives))]
+	animal := animals[rand.Intn(len(animals))]
+	num := rand.Intn(99) + 1 // Random number from 1 to 99
+	return fmt.Sprintf("%s_%s%d", adj, animal, num)
 }
 
 func isValidID(id string) bool {
@@ -238,7 +263,11 @@ func handleWebSocket(ws *websocket.Conn) {
 		room = &Room{Clients: make(map[*Client]bool)}
 		rooms[roomID] = room
 	}
-	client := &Client{Conn: ws, UserID: userID}
+	client := &Client{
+		Conn:        ws,
+		UserID:      userID,
+		DisplayName: generateDisplayName(),
+	}
 	room.Clients[client] = true
 	roomsMutex.Unlock()
 
@@ -272,24 +301,20 @@ func handleWebSocket(ws *websocket.Conn) {
 
 		now := time.Now()
 
-		// Check if the client is muted.
 		if now.Before(client.mutedUntil) {
-			continue // Ignore messages from muted clients.
+			continue
 		}
 
-		// Check for spamming.
 		if !client.lastMessageTime.IsZero() && now.Sub(client.lastMessageTime) < minMessageInterval {
-			// Spam detected! Mute the client and send a fun message.
 			client.mutedUntil = now.Add(muteDuration)
 			funMsg := funMessages[rand.Intn(len(funMessages))]
 			websocket.Message.Send(client.Conn, funMsg)
 			continue
 		}
 
-		// Update the last message time for this client.
 		client.lastMessageTime = now
 
-		formattedMsg := userID + ": " + msg
+		formattedMsg := client.DisplayName + ": " + msg
 
 		room.Mutex.Lock()
 		for clientToSendTo := range room.Clients {
@@ -300,7 +325,6 @@ func handleWebSocket(ws *websocket.Conn) {
 }
 
 func main() {
-	// Seed the random number generator for message selection.
 	rand.Seed(time.Now().UnixNano())
 
 	http.HandleFunc("/", servePage)
