@@ -19,6 +19,9 @@ main
 # Go test binary, built with `go test -c`
 *.test
 
+# go build output 
+bin/
+
 # Go coverage files
 *.out
 *.cover
