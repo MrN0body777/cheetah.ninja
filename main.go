@@ -35,10 +35,9 @@ type Client struct {
 }
 
 type ChatPageData struct {
-	RoomID                string
-	MetaTags              template.HTML
-	ResponsiveCSS         template.CSS
-	NeedsChromeAndroidFix bool
+	RoomID        string
+	MetaTags      template.HTML
+	ResponsiveCSS template.CSS
 }
 
 const maxMessageLength = 160
@@ -65,23 +64,26 @@ var funMessages = []string{
 	"System: The quantum state of your message is both sent and not sent. Please observe.",
 	"System: Alert! The vibes are off. Please recalibrate and try again.",
 	"System: You have exceeded the legal limit for awesome. Please slow down.",
-	"System: You've triggered the anti-spam protocol. Please wait.",
+	"System: A 404 error occurred. Your message was not found.",
+	"System: It's not a bug, it's a feature. You've found the rate-limiting feature.",
+	"System: Have you tried turning it off and on again? Please wait 10 seconds to do so.",
 	"System: A cheetah-ninja has intercepted your message for being too slow. Irony.",
 	"System: DNS propagation for your message is taking longer than expected. Please stand by.",
 	"System: Null Pointer Exception at line 'send message'. Please reboot your enthusiasm.",
 }
 
 var adjectives = []string{
-	"swift", "silent", "shadow", "stealth", "quick", "phantom", "dusk", "night",
-	"golden", "wind", "sable", "solar", "crimson", "obsidian", "azure", "echo",
-	"rapid", "leopard", "sand", "tempest", "invisible", "blade", "gale", "twilight",
-	"zenith", "void", "cobalt", "emerald", "iron", "frost", "storm", "wild",
+	"silent", "shadow", "stealth", "phantom", "dusk", "night", "sable", "obsidian",
+	"invisible", "twilight", "void", "iron", "frost", "swift", "quick", "wind", "echo",
+	"crimson", "cobalt", "storm", "wild", "tempest", "gale", "blade", "dark", "hazy",
+	"wraith", "cryptic", "veiled", "covert", "rapid", "sudden", "blur", "flash",
+	"kinetic", "agile", "nimble", "sonic", "hyper",
 }
 var animals = []string{
-	"pounce", "claw", "dash", "ghost", "fist", "stalker", "runner", "strike",
-	"jaws", "fade", "viper", "dancer", "whisper", "flare", "ninja", "hunter",
-	"cat", "tiger", "panther", "cheetah", "leopard", "lynx", "jaguar", "mongoose",
-	"cobra", "falcon", "eagle", "wolf", "fox", "shark", "hawk", "owl",
+	"cat", "tiger", "panther", "cheetah", "leopard", "lynx", "jaguar", "wolf", "fox",
+	"cobra", "viper", "mongoose", "falcon", "hawk", "eagle", "owl", "shark", "stalker",
+	"hunter", "ninja", "ghost", "wraith", "shade", "specter", "prowler", "shadow",
+	"blade", "strike", "dash", "pounce", "claw", "fist", "bolt",
 }
 
 func generateID() string {
@@ -115,9 +117,6 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userAgent := r.Header.Get("User-Agent")
-	needsFix := strings.Contains(userAgent, "Chrome") && strings.Contains(userAgent, "Android")
-
 	metaTags := `<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, shrink-to-fit=no, viewport-fit=cover">
 <meta name="description" content="Simple chat application">
@@ -125,15 +124,35 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 <link rel="icon" href="data:;base64,=">
 <title>Chat Room ` + template.HTMLEscapeString(roomID) + `</title>`
 
-	responsiveCSS := `html { margin:0; padding:0; width:100%; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; text-size-adjust:100%; height:var(--app-height,100vh); overflow:hidden; }
-body { margin:0; padding:0; width:100%; font-family:monospace; height:100%; display:flex; flex-direction:column; padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom); }
-#messages { padding-top: calc(50px + 12px + env(safe-area-inset-top,0)); }`
+	responsiveCSS := `html { 
+    margin:0; 
+    padding:0; 
+    width:100%; 
+    -webkit-text-size-adjust:100%; 
+    -ms-text-size-adjust:100%; 
+    text-size-adjust:100%; 
+    height:var(--app-height,100vh); 
+    overflow:hidden; 
+}
+body { 
+    margin:0; 
+    padding:0; 
+    width:100%; 
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+    height:100%; 
+    display:flex; 
+    flex-direction:column; 
+    padding-top:env(safe-area-inset-top); 
+    padding-bottom:env(safe-area-inset-bottom); 
+}
+#messages { 
+    padding-top: calc(84px + 12px + env(safe-area-inset-top,0)); 
+}`
 
 	data := ChatPageData{
-		RoomID:                roomID,
-		MetaTags:              template.HTML(metaTags),
-		ResponsiveCSS:         template.CSS(responsiveCSS),
-		NeedsChromeAndroidFix: needsFix,
+		RoomID:        roomID,
+		MetaTags:      template.HTML(metaTags),
+		ResponsiveCSS: template.CSS(responsiveCSS),
 	}
 
 	err := chatTemplate.Execute(w, data)

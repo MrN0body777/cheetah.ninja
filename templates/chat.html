@@ -3,38 +3,59 @@
 <head>
     {{.MetaTags}}
     <style>
+        html {
+            box-sizing: border-box;
+        }
+        *, *:before, *:after {
+            box-sizing: inherit;
+        }
+
         html, body { 
             margin:0; 
             padding:0; 
             width:100%; 
-            font-family:monospace; 
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
         }
         body { 
             display:flex; 
             flex-direction:column; 
-            min-height:100vh; 
+            height: 100%; 
             overflow:hidden; 
+            background-color: #f8f9fa; 
+            color: #333;
+            position: relative;
+        }
+        body::before {
+            content: "🥷";
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 300px;
+            opacity: 0.26;
+            z-index: -1;
+            pointer-events: none;
         }
         #header { 
             flex-shrink:0; 
             display:flex; 
             justify-content:flex-end; 
             align-items:center; 
-            gap:2px; 
-            background: white; 
-            padding:0 10px; 
+            gap:8px; 
+            background: #ffffff; 
+            padding: 12px 20px 12px 12px; 
+            height: 60px; 
             position: fixed; 
             top: 0; 
             left: 0; 
             right: 0; 
             z-index: 12; 
-            height: 50px; 
-            border-bottom: 1px solid #e5e5e5;
+            border-bottom: 1px solid #e9ecef;
         }
         #messages { 
             flex: 1; 
             overflow:auto; 
-            padding: 90px 12px 0 12px; 
+            padding: 0 12px; 
             font-size:16px; 
             line-height:1.5; 
         }
@@ -43,51 +64,46 @@
             display:flex; 
             align-items:center; 
             gap:8px; 
-            padding:12px; 
-            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); 
-            border-top: 1px solid #e5e5e5; 
+            padding: 18px 20px 18px 16px; 
+            padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); 
+            border-top: 1px solid #e9ecef;
+            background: #ffffff; 
         }
         #msgInput { 
             flex:1; 
-            padding:11px 13px; 
-            font-size:16px; 
-            border-radius:8px; 
-            border:1px solid #ccc; 
+            padding:10px 12px; 
+            font-size:15px; 
+            border-radius:12px; 
+            border:1px solid #dee2e6; 
             -webkit-appearance:none; 
         }
         #sendBtn, #shareBtn { 
             padding:12px 14px; 
             font-size:15px; 
-            border-radius:8px; 
+            border-radius:12px; 
             white-space:nowrap; 
             cursor:pointer; 
             flex-shrink:0; 
-            border: 1px solid #ccc;
+            border: 1px solid #dee2e6;
+            background-color: #f8f9fa;
+            transition: background-color 0.2s ease;
+        }
+        #sendBtn {
+            padding: 10px 12px;
+        }
+        #sendBtn:hover, #shareBtn:hover {
+            background-color: #e9ecef;
         }
         .msg { margin-bottom:8px; word-break:break-word; }
-        .system-msg { margin-bottom:8px; word-break:break-word; color: #d32f2f; font-style: italic; }
+        .system-msg { margin-bottom:8px; word-break:break-word; color: #6c757d; font-style: italic; }
         #charCount { 
             font-size:14px; 
             user-select:none; 
             flex-shrink:0; 
             min-width:45px; 
             text-align:right; 
+            color: #6c757d;
         }
-        #share-feedback { 
-            font-size:14px; 
-            color:#555; 
-            opacity:0; 
-            transition:opacity 0.3s ease-in-out; 
-            position:absolute; 
-            top:50%; 
-            left:50%; 
-            transform:translate(-50%, -50%); 
-            background-color:rgba(0,0,0,0.7); 
-            color:white; 
-            padding:8px 12px; 
-            border-radius:4px; 
-        }
-        #share-feedback.visible { opacity:1; }
         {{.ResponsiveCSS}}
         @media (max-width: 768px) {
             #messages {
@@ -102,21 +118,17 @@
                 font-size: 18px;
                 padding: 13px 15px; 
             }
+            #sendBtn {
+                padding: 11px 15px; 
+            }
         }
     </style>
 </head>
 <body>
-<div id="header">
-<button id="shareBtn">Share Invite Link</button>
-<span id="share-feedback"></span>
-</div>
+<div id="header"><button id="shareBtn">Share Invite Link</button></div>
 <div id="messages"></div>
 <form id="inputForm">
-<div id="inputArea">
-<input id="msgInput" type="text" maxlength="160" placeholder="Type message..." autocomplete="off">
-<span id="charCount">0/160</span>
-<button id="sendBtn" type="submit">Send</button>
-</div>
+<div id="inputArea"><input id="msgInput" type="text" maxlength="160" placeholder="Say something..." autocomplete="off"><span id="charCount">0/160</span><button id="sendBtn" type="submit">Send</button></div>
 </form>
 <script>
 (() => {
@@ -128,7 +140,6 @@
         messages: document.getElementById('messages'),
         input:    document.getElementById('msgInput'),
         charCount: document.getElementById('charCount'),
-        shareFeedback: document.getElementById('share-feedback'),
         form:      document.getElementById('inputForm'),
     };
 
@@ -202,50 +213,54 @@
     };
     
     const shareLink = () => {
+        const shareButton = document.getElementById('shareBtn');
+        const originalText = shareButton.textContent;
         const textToCopy = location.href;
+
+        const resetButtonText = () => {
+            shareButton.textContent = originalText;
+        };
+
+        const copySuccess = () => {
+            shareButton.textContent = 'Done!';
+            setTimeout(resetButtonText, 2000);
+        };
+
         if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(textToCopy).then(() => {
-                showShareFeedback();
-            }).catch(err => {
-                console.error('Failed to copy link: ', err);
-                fallbackCopyToClipboard(textToCopy);
+            navigator.clipboard.writeText(textToCopy).then(copySuccess).catch(err => {
+                console.error('Failed to copy using Clipboard API, falling back.', err);
+                fallbackCopy(textToCopy, copySuccess);
             });
         } else {
-            fallbackCopyToClipboard(textToCopy);
+            fallbackCopy(textToCopy, copySuccess);
         }
     };
-
-    const showShareFeedback = () => {
-        elements.shareFeedback.textContent = "Link saved!";
-        elements.shareFeedback.classList.add('visible');
-        setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
-    };
     
-    const fallbackCopyToClipboard = (text) => {
+    const fallbackCopy = (text, onSuccess) => {
         const textArea = document.createElement("textarea");
         textArea.value = text;
         textArea.style.position = "fixed";
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
+        
         try {
             const successful = document.execCommand('copy');
             if (successful) {
-                showShareFeedback();
+                onSuccess();
             } else {
-                prompt('Copy this link:', text);
+                console.error('Fallback: Unable to copy text');
             }
         } catch (err) {
             console.error('Fallback: Oops, unable to copy', err);
-            prompt('Copy this link:', text);
         }
+        
         document.body.removeChild(textArea);
     };
 
     const updateCharCount = () => {
         const length = elements.input.value.length;
         elements.charCount.textContent = `${length}/160`;
-        elements.charCount.style.color = (length > 140) ? '#d32f2f' : '';
     };
 
     elements.form.addEventListener('submit', (e) => {
@@ -254,15 +269,6 @@
     });
     elements.input.addEventListener('input', updateCharCount);
     document.getElementById('shareBtn').addEventListener('click', shareLink);
-
-    {{if .NeedsChromeAndroidFix}}
-    elements.input.addEventListener('mousedown', function(e) {
-        if (document.activeElement !== this) {
-            e.preventDefault();
-            this.focus();
-        }
-    });
-    {{end}}
 
     elements.input.focus();
     updateCharCount();
