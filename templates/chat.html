@@ -1,172 +1,260 @@
 <!DOCTYPE html>
+<html lang="en">
 <head>
     {{.MetaTags}}
     <style>
-        html, body { margin:0; padding:0; width:100%; height:100%; font-family:monospace; }
-        body { display:flex; flex-direction:column; min-height:100vh; overflow:hidden; }
+        html, body { 
+            margin:0; 
+            padding:0; 
+            width:100%; 
+            font-family:monospace; 
+        }
+        body { 
+            display:flex; 
+            flex-direction:column; 
+            min-height:100vh; 
+            overflow:hidden; 
+        }
         #header { 
             flex-shrink:0; 
-            display:flex; justify-content:flex-end; align-items:center; gap:2px;
-            background: white; padding:0 10px; position: fixed; top: 0; left: 0; right: 0; z-index: 12; height: 50px;
+            display:flex; 
+            justify-content:flex-end; 
+            align-items:center; 
+            gap:2px; 
+            background: white; 
+            padding:0 10px; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            right: 0; 
+            z-index: 12; 
+            height: 50px; 
+            border-bottom: 1px solid #e5e5e5;
         }
         #messages { 
-            flex: 1; overflow:auto; padding: 90px 12px 0 12px; font-size:16px; line-height:1.4;
+            flex: 1; 
+            overflow:auto; 
+            padding: 90px 12px 0 12px; 
+            font-size:16px; 
+            line-height:1.5; 
         }
         #inputArea { 
             flex-shrink:0; 
-            display:flex; align-items:center; gap:8px; 
-            padding:12px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-            border-top: 1px solid #e5e5e5;
+            display:flex; 
+            align-items:center; 
+            gap:8px; 
+            padding:12px; 
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); 
+            border-top: 1px solid #e5e5e5; 
         }
         #msgInput { 
-            flex:1; padding:12px 16px; font-size:16px; border-radius:6px; border:1px solid #ccc; -webkit-appearance:none; 
+            flex:1; 
+            padding:11px 13px; 
+            font-size:16px; 
+            border-radius:8px; 
+            border:1px solid #ccc; 
+            -webkit-appearance:none; 
         }
         #sendBtn, #shareBtn { 
-            padding:12px 16px; font-size:16px; border-radius:6px; white-space:nowrap; cursor:pointer; 
-            flex-shrink:0; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding:12px 14px; 
+            font-size:15px; 
+            border-radius:8px; 
+            white-space:nowrap; 
+            cursor:pointer; 
+            flex-shrink:0; 
+            border: 1px solid #ccc;
         }
-        .msg { margin-bottom:6px; word-break:break-word; }
-        .system-msg { margin-bottom:6px; word-break:break-word; color: #d32f2f; font-style: italic; }
+        .msg { margin-bottom:8px; word-break:break-word; }
+        .system-msg { margin-bottom:8px; word-break:break-word; color: #d32f2f; font-style: italic; }
         #charCount { 
-            font-size:14px; user-select:none; flex-shrink:0; min-width:45px; text-align:right; 
+            font-size:14px; 
+            user-select:none; 
+            flex-shrink:0; 
+            min-width:45px; 
+            text-align:right; 
         }
         #share-feedback { 
-            font-size:14px; color:#555; opacity:0; transition:opacity 0.3s ease-in-out; 
-            position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); 
-            background-color:rgba(0,0,0,0.7); color:white; padding:8px 12px; border-radius:4px; 
+            font-size:14px; 
+            color:#555; 
+            opacity:0; 
+            transition:opacity 0.3s ease-in-out; 
+            position:absolute; 
+            top:50%; 
+            left:50%; 
+            transform:translate(-50%, -50%); 
+            background-color:rgba(0,0,0,0.7); 
+            color:white; 
+            padding:8px 12px; 
+            border-radius:4px; 
         }
         #share-feedback.visible { opacity:1; }
         {{.ResponsiveCSS}}
+        @media (max-width: 768px) {
+            #messages {
+                font-size: 18px;
+                line-height: 1.6;
+            }
+            #msgInput {
+                font-size: 18px;
+                padding: 13px 15px; 
+            }
+            #sendBtn, #shareBtn {
+                font-size: 18px;
+                padding: 13px 15px; 
+            }
+        }
     </style>
 </head>
 <body>
 <div id="header">
-    <button id="shareBtn">Share Invite Link</button>
-    <span id="share-feedback"></span>
+<button id="shareBtn">Share Invite Link</button>
+<span id="share-feedback"></span>
 </div>
 <div id="messages"></div>
 <form id="inputForm">
-    <div id="inputArea">
-        <input id="msgInput" type="text" maxlength="160" placeholder="Type message..." autocomplete="off">
-        <span id="charCount">0/160</span>
-        <button id="sendBtn" type="submit">Send</button>
-    </div>
+<div id="inputArea">
+<input id="msgInput" type="text" maxlength="160" placeholder="Type message..." autocomplete="off">
+<span id="charCount">0/160</span>
+<button id="sendBtn" type="submit">Send</button>
+</div>
 </form>
 <script>
 (() => {
-    const roomID = "{{.RoomID}}";
+    const roomID = window.location.pathname.substring(1);
     const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${location.host}/ws?room=${roomID}`;
 
     const elements = {
         messages: document.getElementById('messages'),
-        input: document.getElementById('msgInput'),
+        input:    document.getElementById('msgInput'),
         charCount: document.getElementById('charCount'),
         shareFeedback: document.getElementById('share-feedback'),
-        form: document.getElementById('inputForm'),
+        form:      document.getElementById('inputForm'),
     };
 
-    let ws;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const INITIAL_RECONNECT_DELAY_MS = 2000;
+    let reconnectAttempts = 0;
+    let reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
+
+    let websocketConn;
     let reconnectTimeout;
+
+    const setAppHeight = () => {
+        const doc = document.documentElement;
+        doc.style.setProperty('--app-height', `${window.innerHeight}px`);
+    };
+    window.addEventListener('resize', setAppHeight);
+    window.addEventListener('orientationchange', setAppHeight);
+    setAppHeight();
 
     const connect = () => {
         clearTimeout(reconnectTimeout);
+        
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.error(`Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`);
+            elements.messages.innerHTML += '<div class="system-msg">Connection lost. Please refresh the page to try again.</div>';
+            return;
+        }
 
-        ws = new WebSocket(wsUrl);
+        console.log(`Attempting to connect... (${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        websocketConn = new WebSocket(wsUrl);
 
-        ws.onopen = () => {
+        websocketConn.onopen = () => {
+            console.log('WebSocket connection established.');
+            reconnectAttempts = 0;
+            reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
+            elements.messages.scrollTop = elements.messages.scrollHeight;
         };
 
-        ws.onmessage = (event) => {
+        websocketConn.onmessage = (event) => {
             const message = event.data;
             const isSystem = message.startsWith("System:");
             const messageEl = document.createElement('div');
             messageEl.className = isSystem ? 'system-msg' : 'msg';
             messageEl.textContent = message;
             elements.messages.appendChild(messageEl);
-            elements.messages.scrollTop = elements.messages.scrollHeight;
+            elements.messages.scrollTo({ top: elements.messages.scrollHeight, behavior: 'smooth' });
         };
 
-        ws.onclose = () => {
-            reconnectTimeout = setTimeout(connect, 2000);
+        websocketConn.onclose = (event) => {
+            console.log('WebSocket connection closed.', event.code, event.reason);
+            if (event.code !== 1000) {
+                reconnectAttempts++;
+                reconnectTimeout = setTimeout(connect, reconnectDelay);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+            }
         };
 
-        ws.onerror = (err) => {
+        websocketConn.onerror = (err) => {
             console.error('WebSocket error:', err);
-            ws.close();
+            websocketConn.close();
         };
     };
 
     const sendMessage = () => {
         const text = elements.input.value.trim();
-        if (text && ws.readyState === WebSocket.OPEN) {
-            ws.send(text);
+        if (text && websocketConn.readyState === WebSocket.OPEN) {
+            websocketConn.send(text);
             elements.input.value = '';
-            const length = elements.input.value.length;
-            elements.charCount.textContent = `${length}/160`;
-            elements.charCount.style.color = '';
+            updateCharCount();
         }
     };
     
+    // REVERTED: This function now copies only the URL
     const shareLink = () => {
         const textToCopy = location.href;
-        if (navigator.clipboard) {
+        if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(textToCopy).then(() => {
-                elements.shareFeedback.textContent = "Link saved!";
-                elements.shareFeedback.classList.add('visible');
-                setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
-            }).catch(() => {
-                const textArea = document.createElement("textarea");
-                textArea.value = textToCopy;
-                textArea.style.position = "fixed";
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                try {
-                    document.execCommand('copy');
-                    elements.shareFeedback.textContent = "Link saved!";
-                    elements.shareFeedback.classList.add('visible');
-                    setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
-                } catch (err) {
-                    console.error('Fallback: Oops, unable to copy', err);
-                    prompt('Copy this link:', textToCopy);
-                }
-                document.body.removeChild(textArea);
+                showShareFeedback();
+            }).catch(err => {
+                console.error('Failed to copy link: ', err);
+                fallbackCopyToClipboard(textToCopy);
             });
         } else {
-            const textArea = document.createElement("textarea");
-            textArea.value = textToCopy;
-            textArea.style.position = "fixed";
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            try {
-                document.execCommand('copy');
-                elements.shareFeedback.textContent = "Link saved!";
-                elements.shareFeedback.classList.add('visible');
-                setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
-            } catch (err) {
-                console.error('Fallback: Oops, unable to copy', err);
-                prompt('Copy this link:', textToCopy);
-            }
-            document.body.removeChild(textArea);
+            fallbackCopyToClipboard(textToCopy);
         }
+    };
+
+    const showShareFeedback = () => {
+        elements.shareFeedback.textContent = "Link saved!";
+        elements.shareFeedback.classList.add('visible');
+        setTimeout(() => elements.shareFeedback.classList.remove('visible'), 2000);
+    };
+    
+    const fallbackCopyToClipboard = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                showShareFeedback();
+            } else {
+                prompt('Copy this link:', text);
+            }
+        } catch (err) {
+            console.error('Fallback: Oops, unable to copy', err);
+            prompt('Copy this link:', text);
+        }
+        document.body.removeChild(textArea);
+    };
+
+    const updateCharCount = () => {
+        const length = elements.input.value.length;
+        elements.charCount.textContent = `${length}/160`;
+        elements.charCount.style.color = (length > 140) ? '#d32f2f' : '';
     };
 
     elements.form.addEventListener('submit', (e) => {
         e.preventDefault();
         sendMessage();
     });
-    elements.input.addEventListener('input', () => {
-        const length = elements.input.value.length;
-        elements.charCount.textContent = `${length}/160`;
-        elements.charCount.style.color = (length > 140) ? '#d32f2f' : '';
-    });
+    elements.input.addEventListener('input', updateCharCount);
     document.getElementById('shareBtn').addEventListener('click', shareLink);
-
-    elements.input.focus();
-    const length = elements.input.value.length;
-    elements.charCount.textContent = `${length}/160`;
 
     {{if .NeedsChromeAndroidFix}}
     elements.input.addEventListener('mousedown', function(e) {
@@ -177,6 +265,8 @@
     });
     {{end}}
 
+    elements.input.focus();
+    updateCharCount();
     connect();
 })();
 </script>
