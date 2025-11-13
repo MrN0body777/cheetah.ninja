@@ -54,11 +54,14 @@
             border-bottom: 1px solid #e9ecef;
         }
         #messages { 
+            display: flex;
+            flex-direction: column-reverse;
             flex: 1; 
             overflow:auto; 
             padding: 0 12px; 
             font-size:16px; 
-            line-height:1.5; 
+            line-height:1.5;
+            gap: 8px;
         }
         #inputArea { 
             flex-shrink:0; 
@@ -95,8 +98,8 @@
         #sendBtn:hover, #shareBtn:hover {
             background-color: #e9ecef;
         }
-        .msg { margin-bottom:8px; word-break:break-word; }
-        .system-msg { margin-bottom:8px; word-break:break-word; color: #6c757d; font-style: italic; }
+        .msg { word-break:break-word; }
+        .system-msg { word-break:break-word; color: #6c757d; font-style: italic; }
         #charCount { 
             font-size:14px; 
             user-select:none; 
@@ -111,11 +114,7 @@
                 font-size: 18px;
                 line-height: 1.6;
             }
-            #msgInput {
-                font-size: 18px;
-                padding: 13px 15px; 
-            }
-            #sendBtn, #shareBtn {
+            #msgInput, #sendBtn, #shareBtn {
                 font-size: 18px;
                 padding: 13px 15px; 
             }
@@ -124,11 +123,6 @@
             }
         }
     </style>
-    <script>
-        const styleSheet = document.createElement("style");
-        styleSheet.textContent = `body::before { content: "🥷"; }`;
-        document.head.appendChild(styleSheet);
-    </script>
 </head>
 <body>
 <div id="header"><button id="shareBtn">Share Invite Link</button></div>
@@ -178,7 +172,7 @@
         websocketConn.onopen = () => {
             reconnectAttempts = 0;
             reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
-            elements.messages.scrollTop = elements.messages.scrollHeight;
+            elements.messages.scrollTop = 0;
         };
 
         websocketConn.onmessage = (event) => {
@@ -187,8 +181,7 @@
             const messageEl = document.createElement('div');
             messageEl.className = isSystem ? 'system-msg' : 'msg';
             messageEl.textContent = message;
-            elements.messages.appendChild(messageEl);
-            elements.messages.scrollTo({ top: elements.messages.scrollHeight, behavior: 'smooth' });
+            elements.messages.prepend(messageEl);
         };
 
         websocketConn.onclose = (event) => {
@@ -223,7 +216,7 @@
         };
 
         const copySuccess = () => {
-            shareButton.textContent = 'Copied!'; // Changed from 'Done!' to 'Copied!'
+            shareButton.textContent = 'Copied!';
             setTimeout(resetButtonText, 2000);
         };
 

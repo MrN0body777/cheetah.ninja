@@ -131,23 +131,14 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 <title>Chat Room ` + template.HTMLEscapeString(roomID) + `</title>`
 
 	responsiveCSS := `html { 
-    margin:0; 
-    padding:0; 
-    width:100%; 
+    height:var(--app-height,100vh); 
     -webkit-text-size-adjust:100%; 
     -ms-text-size-adjust:100%; 
     text-size-adjust:100%; 
-    height:var(--app-height,100vh); 
     overflow:hidden; 
 }
 body { 
-    margin:0; 
-    padding:0; 
-    width:100%; 
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
     height:100%; 
-    display:flex; 
-    flex-direction:column; 
     padding-top:env(safe-area-inset-top); 
     padding-bottom:env(safe-area-inset-bottom); 
 }
