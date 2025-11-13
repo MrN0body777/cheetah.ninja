@@ -102,7 +102,13 @@ func generateDisplayName() string {
 }
 
 func servePage(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/" {
+	if r.URL.Path == "/" && r.Method == http.MethodPost {
+		roomID := generateID()
+		http.Redirect(w, r, "/"+roomID, http.StatusSeeOther)
+		return
+	}
+
+	if r.URL.Path == "/" && r.Method == http.MethodGet {
 		err := indexTemplate.Execute(w, nil)
 		if err != nil {
 			log.Printf("Error executing index template: %v", err)
@@ -183,16 +189,18 @@ func handleWebSocket(ws *websocket.Conn) {
 	defer func() {
 		room.Mutex.Lock()
 		delete(room.Clients, client)
-		if len(room.Clients) == 0 {
+		isEmpty := len(room.Clients) == 0
+		room.Mutex.Unlock()
+
+		if isEmpty {
 			roomsMutex.Lock()
 			delete(rooms, roomID)
 			roomsMutex.Unlock()
 		}
-		room.Mutex.Unlock()
 		ws.Close()
 	}()
 
-	pingTicker := time.NewTicker(30 * time.Second)
+	pingTicker := time.NewTicker(60 * time.Second)
 	defer pingTicker.Stop()
 	go func() {
 		for range pingTicker.C {
@@ -211,36 +219,38 @@ func handleWebSocket(ws *websocket.Conn) {
 		}
 
 		msg = strings.TrimSpace(msg)
-		if len(msg) == 0 || len(msg) > maxMessageLength {
-			if len(msg) > maxMessageLength {
-				errorMsg := "System: Message exceeds 160 character limit and was not sent."
-				websocket.Message.Send(client.Conn, errorMsg)
-			}
+		if len(msg) == 0 {
 			continue
 		}
+
 		now := time.Now()
 		if now.Before(client.mutedUntil) {
 			continue
 		}
+
+		if len(msg) > maxMessageLength {
+			errorMsg := "System: Message exceeds 160 character limit and was not sent."
+			websocket.Message.Send(client.Conn, errorMsg)
+			continue
+		}
+
 		if !client.lastMessageTime.IsZero() && now.Sub(client.lastMessageTime) < minMessageInterval {
 			client.mutedUntil = now.Add(muteDuration)
 			randMessage := funMessages[rand.Intn(len(funMessages))]
 			websocket.Message.Send(client.Conn, randMessage)
 			continue
 		}
+
 		client.lastMessageTime = now
 		formattedMsg := client.DisplayName + ": " + msg
 
 		room.Mutex.Lock()
-		clientsToSend := make([]*Client, 0, len(room.Clients))
-		for c := range room.Clients {
-			clientsToSend = append(clientsToSend, c)
+		for clientConn := range room.Clients {
+			if err := websocket.Message.Send(clientConn.Conn, formattedMsg); err != nil {
+				log.Printf("Error sending message to client %s: %v", clientConn.UserID, err)
+			}
 		}
 		room.Mutex.Unlock()
-
-		for _, c := range clientsToSend {
-			websocket.Message.Send(c.Conn, formattedMsg)
-		}
 	}
 }
 
