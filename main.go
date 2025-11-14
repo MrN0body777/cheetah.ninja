@@ -27,11 +27,9 @@ type Room struct {
 }
 
 type Client struct {
-	Conn            *websocket.Conn
-	UserID          string
-	DisplayName     string
-	lastMessageTime time.Time
-	mutedUntil      time.Time
+	Conn        *websocket.Conn
+	UserID      string
+	DisplayName string
 }
 
 type ChatPageData struct {
@@ -41,36 +39,6 @@ type ChatPageData struct {
 }
 
 const maxMessageLength = 160
-const minMessageInterval = 750 * time.Millisecond
-const muteDuration = 10 * time.Second
-
-var funMessages = []string{
-	"System: Whoa there, speedy! The hamster powering the server needs a break.",
-	"System: A wild penguin has appeared and stolen your message.",
-	"System: Error: Boop not found. Please try again later.",
-	"System: You have been placed in a digital timeout. Think about what you've done.",
-	"System: The squirrels are on fire again. Please wait for them to be extinguished.",
-	"System: You're typing so fast the keyboard is getting dizzy.",
-	"System: My circuits are overheating! Please slow down.",
-	"System: A pack of capybaras has formed a protective circle around the server. Please wait.",
-	"System: Your message was intercepted by a flock of geese. They were not impressed.",
-	"System: The server's cat is walking on the keyboard again. Please stand by.",
-	"System: A sloth is delivering your message. It will arrive... eventually.",
-	"System: The bit bucket is full. Please try again after we empty it.",
-	"System: A packet gremlin has misplaced your data. We're negotiating with it now.",
-	"System: Your message has been queued behind 47 cat videos. Please wait.",
-	"System: The color blue is currently offline. Please try a different color.",
-	"System: Message rejected for containing too much Tuesday.",
-	"System: The quantum state of your message is both sent and not sent. Please observe.",
-	"System: Alert! The vibes are off. Please recalibrate and try again.",
-	"System: You have exceeded the legal limit for awesome. Please slow down.",
-	"System: A 404 error occurred. Your message was not found.",
-	"System: It's not a bug, it's a feature. You've found the rate-limiting feature.",
-	"System: Have you tried turning it off and on again? Please wait 10 seconds to do so.",
-	"System: A cheetah-ninja has intercepted your message for being too slow. Irony.",
-	"System: DNS propagation for your message is taking longer than expected. Please stand by.",
-	"System: Null Pointer Exception at line 'send message'. Please reboot your enthusiasm.",
-}
 
 var adjectives = []string{
 	"silent", "shadow", "stealth", "phantom", "dusk", "night", "sable", "obsidian",
@@ -124,10 +92,7 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metaTags := `<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, shrink-to-fit=no, viewport-fit=cover">
-<meta name="description" content="Simple chat application">
-<meta name="theme-color" content="#ffffff">
-<link rel="icon" href="data:;base64,=">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no, viewport-fit=cover">
 <title>Chat Room ` + template.HTMLEscapeString(roomID) + `</title>`
 
 	responsiveCSS := `html { 
@@ -163,6 +128,8 @@ func handleWebSocket(ws *websocket.Conn) {
 	roomID := ws.Request().URL.Query().Get("room")
 
 	userID := generateID()
+	displayName := generateDisplayName()
+
 	roomsMutex.Lock()
 	room, exists := rooms[roomID]
 	if !exists {
@@ -172,10 +139,13 @@ func handleWebSocket(ws *websocket.Conn) {
 	client := &Client{
 		Conn:        ws,
 		UserID:      userID,
-		DisplayName: generateDisplayName(),
+		DisplayName: displayName,
 	}
 	room.Clients[client] = true
 	roomsMutex.Unlock()
+
+	nameAssignmentMsg := fmt.Sprintf("System: Your name is %s", client.DisplayName)
+	websocket.Message.Send(client.Conn, nameAssignmentMsg)
 
 	defer func() {
 		room.Mutex.Lock()
@@ -214,25 +184,12 @@ func handleWebSocket(ws *websocket.Conn) {
 			continue
 		}
 
-		now := time.Now()
-		if now.Before(client.mutedUntil) {
-			continue
-		}
-
 		if len(msg) > maxMessageLength {
 			errorMsg := "System: Message exceeds 160 character limit and was not sent."
 			websocket.Message.Send(client.Conn, errorMsg)
 			continue
 		}
 
-		if !client.lastMessageTime.IsZero() && now.Sub(client.lastMessageTime) < minMessageInterval {
-			client.mutedUntil = now.Add(muteDuration)
-			randMessage := funMessages[rand.Intn(len(funMessages))]
-			websocket.Message.Send(client.Conn, randMessage)
-			continue
-		}
-
-		client.lastMessageTime = now
 		formattedMsg := client.DisplayName + ": " + msg
 
 		room.Mutex.Lock()
