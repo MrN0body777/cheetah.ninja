@@ -208,9 +208,12 @@
             shareButton.textContent = 'Copied!';
             setTimeout(resetButtonText, 2000);
         };
+
         if (navigator.share) {
             navigator.share({ title: 'Join my Chat Room', text: 'Click link to join my chat room!', url: textToCopy })
-                .catch(() => fallbackCopy(textToCopy, copySuccess));
+            .finally(() => {
+                fallbackCopy(textToCopy, copySuccess);
+            });
         } else {
             fallbackCopy(textToCopy, copySuccess);
         }
