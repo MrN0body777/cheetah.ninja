@@ -75,6 +75,39 @@ func generateDisplayName() string {
 	return fmt.Sprintf("%s_%s%d", adj, animal, num)
 }
 
+func getOrCreateDisplayName(w http.ResponseWriter, r *http.Request) string {
+	var displayName string
+	cookie, err := r.Cookie("chatDisplayName")
+
+	if err == nil {
+		err = scookie.Decode("chatDisplayName", cookie.Value, &displayName)
+		if err != nil {
+			displayName = ""
+		} else {
+			return displayName
+		}
+	}
+
+	displayName = generateDisplayName()
+
+	encoded, err := scookie.Encode("chatDisplayName", displayName)
+	if err != nil {
+		return ""
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "chatDisplayName",
+		Value:    encoded,
+		Path:     "/",
+		MaxAge:   86400 * 30,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	return displayName
+}
+
 func servePage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" && r.Method == http.MethodPost {
 		roomID := generateID()
@@ -85,7 +118,6 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" && r.Method == http.MethodGet {
 		err := indexTemplate.Execute(w, nil)
 		if err != nil {
-			log.Printf("Error executing index template: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 		return
@@ -96,6 +128,8 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
+	getOrCreateDisplayName(w, r)
 
 	metaTags := `<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no, viewport-fit=cover">
@@ -132,40 +166,16 @@ body {
 
 	err := chatTemplate.Execute(w, data)
 	if err != nil {
-		log.Printf("Error executing chat template: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
 
 func wsAuthWrapper(h websocket.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var displayName string
-		cookie, err := r.Cookie("chatDisplayName")
-
-		if err == nil {
-			if err = scookie.Decode("chatDisplayName", cookie.Value, &displayName); err != nil {
-				log.Printf("Error decoding cookie, possibly tampered: %v", err)
-				displayName = ""
-			}
-		}
-
+		displayName := getOrCreateDisplayName(w, r)
 		if displayName == "" {
-			displayName = generateDisplayName()
-			encoded, err := scookie.Encode("chatDisplayName", displayName)
-			if err != nil {
-				log.Printf("Error encoding cookie: %v", err)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-			http.SetCookie(w, &http.Cookie{
-				Name:     "chatDisplayName",
-				Value:    encoded,
-				Path:     "/",
-				MaxAge:   86400 * 30,
-				HttpOnly: true,
-				Secure:   r.TLS != nil,
-				SameSite: http.SameSiteLaxMode,
-			})
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
 		}
 
 		q := r.URL.Query()
@@ -182,7 +192,6 @@ func handleWebSocket(ws *websocket.Conn) {
 	displayName := ws.Request().URL.Query().Get("name")
 
 	if displayName == "" {
-		log.Printf("Error: WebSocket connection without a display name.")
 		ws.Close()
 		return
 	}
@@ -253,7 +262,6 @@ func handleWebSocket(ws *websocket.Conn) {
 		room.Mutex.Lock()
 		for clientConn := range room.Clients {
 			if err := websocket.Message.Send(clientConn.Conn, formattedMsg); err != nil {
-				log.Printf("Error sending message to client %s: %v", clientConn.UserID, err)
 			}
 		}
 		room.Mutex.Unlock()
@@ -266,6 +274,5 @@ func main() {
 	mux.HandleFunc("/", servePage)
 	mux.Handle("/ws", wsAuthWrapper(websocket.Handler(handleWebSocket)))
 
-	fmt.Println("Server running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }

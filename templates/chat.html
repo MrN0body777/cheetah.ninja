@@ -37,8 +37,9 @@
             align-items:center; 
             gap:8px; 
             background: #fff; 
-            padding: calc(12px + env(safe-area-inset-top, 12px)) 20px 12px 12px;
-            height: calc(60px + env(safe-area-inset-top, 0px));
+            min-height: 40px;
+            padding: 8px;
+            padding-top: calc(8px + env(safe-area-inset-top, 0px));
             position: sticky;
             top: 0;
             border-bottom: 1px solid #e9ecef;
@@ -52,7 +53,7 @@
             font-size:16px; 
             line-height:1.5;
             gap: 8px;
-            padding-top: calc(72px + env(safe-area-inset-top, 0px));
+            padding-top: calc(60px + 12px + 12px + env(safe-area-inset-top, 0px));
             padding-bottom: 84px;
         }
         #inputArea { 
@@ -101,6 +102,10 @@
             text-align:right; 
             color: #6c757d;
         }
+        /* FIX: Add specific padding for the invite button */
+        .invite-btn {
+            padding: 8px 12px;
+        }
 
         {{.ResponsiveCSS}}
         @media (max-width: 768px) {
@@ -109,11 +114,12 @@
             #msgInput { font-size: 16px; padding: 10px; }
             #sendBtn, #shareBtn { font-size: 14px; padding: 12px; }
             #charCount { font-size: 11px; min-width: 35px; }
+            .invite-btn { padding: 6px 10px; }
         }
     </style>
 </head>
 <body>
-<div id="header"><button id="shareBtn">invite</button></div>
+<div id="header"><button id="shareBtn" class="invite-btn">invite</button></div>
 <div id="messages"></div>
 
 <div id="inputArea">
@@ -210,10 +216,8 @@
         };
 
         if (navigator.share) {
-            navigator.share({ title: 'Join my Chat Room', text: 'Click link to join my chat room!', url: textToCopy })
-            .finally(() => {
-                fallbackCopy(textToCopy, copySuccess);
-            });
+            navigator.share({ title: 'Join my Chat Room', text: 'Click the link to join my chat room!', url: textToCopy })
+                .catch(() => fallbackCopy(textToCopy, copySuccess));
         } else {
             fallbackCopy(textToCopy, copySuccess);
         }

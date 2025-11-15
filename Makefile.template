@@ -7,7 +7,10 @@ GOCMD := go
 GOBUILD := $(GOCMD) build
 BUILDDIR := bin
 
+################################################################################
 # --- Deployment Settings ---
+################################################################################
+
 # These variables are loaded from the .env file.
 # Copy .env.example to .env and fill in your values.
 include .env
@@ -16,54 +19,108 @@ include .env
 SERVER_USER ?= ubuntu
 SERVER_HOST ?= your-aws-server-ip-or-domain
 SERVER_PATH ?= /opt/go-server
+SERVER_SRC_PATH ?= /home/ubuntu/go-server-src
 PEM_KEY ?= /path/to/your/key.pem
 
 ################################################################################
 # --- Main Targets ---
 ################################################################################
 
+# Default target, runs the build process
 all: build
 
 # Build the application for Linux (cross-compilation)
 build:
-	@echo "Building $(APP_NAME) for linux/amd64..."
-	@mkdir -p $(BUILDDIR)
-	GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILDDIR)/$(APP_NAME) .
+    @echo "Building $(APP_NAME) for linux/amd64..."
+    @mkdir -p $(BUILDDIR)
+    GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILDDIR)/$(APP_NAME) .
 
-# DEPLOYMENT: Copy to /tmp, then move, set permissions, and restart
+# Copy the source project to the server without building or deploying.
+copy:
+    @echo "Copying source project to $(SERVER_HOST):$(SERVER_SRC_PATH)..."
+    @ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "mkdir -p $(SERVER_SRC_PATH)"
+    rsync -avz --progress -e "ssh -i $(PEM_KEY)" --exclude 'bin/' --exclude '.git/' ./ $(SERVER_USER)@$(SERVER_HOST):$(SERVER_SRC_PATH)/
+    @echo "Source code copied."
+
+# Deploy the application to the remote server.
+# This target copies files, stops the service, replaces files, and restarts it.
 deploy: build
-	@echo "Deploying $(APP_NAME) to $(SERVER_HOST)..."
-	# 1. Copy the compiled binary to a temporary location
-	scp -i $(PEM_KEY) $(BUILDDIR)/$(APP_NAME) $(SERVER_USER)@$(SERVER_HOST):/tmp/$(APP_NAME)
-	# 2. Copy the static templates directory to a temporary location
-	scp -i $(PEM_KEY) -r templates/ $(SERVER_USER)@$(SERVER_HOST):/tmp/templates
-	@echo "Files copied to /tmp. Moving to /opt and restarting service..."
-	# 3. SSH in, move files with sudo, set permissions, and restart the service
-	ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo mv /tmp/$(APP_NAME) $(SERVER_PATH)/ && sudo mv /tmp/templates $(SERVER_PATH)/ && sudo chmod +x $(SERVER_PATH)/$(APP_NAME) && sudo chown -R gs:gs $(SERVER_PATH) && sudo systemctl restart go-server.service"
-	@echo "Deployment complete."
+    @echo "Deploying $(APP_NAME) to $(SERVER_HOST)..."
+    @echo "--- Copying new files to /tmp on the server ---"
+    scp -i $(PEM_KEY) $(BUILDDIR)/$(APP_NAME) $(SERVER_USER)@$(SERVER_HOST):/tmp/$(APP_NAME)
+    scp -i $(PEM_KEY) -r templates/ $(SERVER_USER)@$(SERVER_HOST):/tmp/templates
+    @echo "--- Stopping service, moving files into place, and restarting ---"
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) " \
+        sudo systemctl stop go-server.service && \
+        sudo rm -rf $(SERVER_PATH)/templates && \
+        sudo mv /tmp/$(APP_NAME) $(SERVER_PATH)/ && \
+        sudo mv /tmp/templates $(SERVER_PATH)/ && \
+        sudo chmod +x $(SERVER_PATH)/$(APP_NAME) && \
+        sudo chown -R gs:gs $(SERVER_PATH) && \
+        sudo systemctl start go-server.service \
+        "
+    @echo "Deployment complete."
 
+# Run the application locally for development
 run:
-	@echo "Running $(APP_NAME) locally..."
-	$(GOCMD) run .
+    @echo "Running $(APP_NAME) locally..."	
+    $(GOCMD) run .
 
+# Clean up local build artifacts
 clean:
-	@echo "Cleaning..."
-	rm -rf $(BUILDDIR)
+    @echo "Cleaning..."
+    rm -rf $(BUILDDIR)
 
 ################################################################################
-# --- Remote Management Targets ---
+# --- Server Management & Monitoring ---
 ################################################################################
 
+# Open an SSH shell to the server
+ssh:
+    @echo "Opening SSH connection to $(SERVER_HOST)..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST)
+
+# Check the status of the application service on the server
 service-status:
-	@echo "Checking status of go-server.service..."
-	ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo systemctl status go-server.service --no-pager"
+    @echo "Checking status of go-server.service..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo systemctl status go-server.service --no-pager"
 
+# Follow the live logs of the application service on the server
 service-logs:
-	@echo "Following logs for go-server.service..."
-	ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo journalctl -u go-server.service -f"
+    @echo "Following logs for go-server.service..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo journalctl -u go-server.service -f"
+
+# Restart the application service on the server
+service-restart:
+    @echo "Restarting go-server.service..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo systemctl restart go-server.service"
+
+# Stop the application service on the server
+service-stop:
+    @echo "Stopping go-server.service..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo systemctl stop go-server.service"
+
+# Start the application service on the server
+service-start:
+    @echo "Starting go-server.service..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "sudo systemctl start go-server.service"
+
+# Get a quick overview of server resource usage (CPU, Memory, Disk)
+server-usage:
+    @echo "--- Server Resource Usage for $(SERVER_HOST) ---"
+    @echo "--- CPU & Memory (top snapshot) ---"
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "top -bn1 | head -15"
+    @echo "--- Disk Usage ---"
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "df -h"
+
+# Check for available system updates on the server (Ubuntu/Debian)
+server-update-check:
+    @echo "Checking for available updates on $(SERVER_HOST)..."
+    ssh -i $(PEM_KEY) $(SERVER_USER)@$(SERVER_HOST) "apt list --upgradable"
 
 ################################################################################
 # --- Phony Targets ---
 ################################################################################
 
-.PHONY: all build deploy run clean service-status service-logs
+# Tells make that these targets are not files
+.PHONY: all build copy deploy run clean ssh service-status service-logs service-restart service-stop service-start server-usage server-update-check
