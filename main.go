@@ -12,8 +12,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/securecookie"
 	"golang.org/x/net/websocket"
 )
+
+var hashKey = []byte("super-secret-hash-key-32-bytes-long")
+var blockKey = []byte("32-byte-long-encryption-key-1234")
+var scookie = securecookie.New(hashKey, blockKey)
 
 var roomsMutex sync.Mutex
 var rooms = make(map[string]*Room)
@@ -36,6 +41,7 @@ type ChatPageData struct {
 	RoomID        string
 	MetaTags      template.HTML
 	ResponsiveCSS template.CSS
+	WSUrl         string
 }
 
 const maxMessageLength = 160
@@ -111,10 +117,17 @@ body {
     padding-top: calc(84px + 12px + env(safe-area-inset-top,0)); 
 }`
 
+	wsProtocol := "ws"
+	if r.TLS != nil {
+		wsProtocol = "wss"
+	}
+	wsUrl := fmt.Sprintf("%s://%s/ws?room=%s", wsProtocol, r.Host, roomID)
+
 	data := ChatPageData{
 		RoomID:        roomID,
 		MetaTags:      template.HTML(metaTags),
 		ResponsiveCSS: template.CSS(responsiveCSS),
+		WSUrl:         wsUrl,
 	}
 
 	err := chatTemplate.Execute(w, data)
@@ -124,11 +137,55 @@ body {
 	}
 }
 
+func wsAuthWrapper(h websocket.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var displayName string
+		cookie, err := r.Cookie("chatDisplayName")
+
+		if err == nil {
+			if err = scookie.Decode("chatDisplayName", cookie.Value, &displayName); err != nil {
+				log.Printf("Error decoding cookie, possibly tampered: %v", err)
+				displayName = ""
+			}
+		}
+
+		if displayName == "" {
+			displayName = generateDisplayName()
+			encoded, err := scookie.Encode("chatDisplayName", displayName)
+			if err != nil {
+				log.Printf("Error encoding cookie: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:     "chatDisplayName",
+				Value:    encoded,
+				Path:     "/",
+				MaxAge:   86400 * 30,
+				HttpOnly: true,
+				Secure:   r.TLS != nil,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+
+		q := r.URL.Query()
+		q.Set("name", displayName)
+		r.URL.RawQuery = q.Encode()
+
+		h.ServeHTTP(w, r)
+	}
+}
+
 func handleWebSocket(ws *websocket.Conn) {
 	roomID := ws.Request().URL.Query().Get("room")
-
 	userID := generateID()
-	displayName := generateDisplayName()
+	displayName := ws.Request().URL.Query().Get("name")
+
+	if displayName == "" {
+		log.Printf("Error: WebSocket connection without a display name.")
+		ws.Close()
+		return
+	}
 
 	roomsMutex.Lock()
 	room, exists := rooms[roomID]
@@ -143,9 +200,6 @@ func handleWebSocket(ws *websocket.Conn) {
 	}
 	room.Clients[client] = true
 	roomsMutex.Unlock()
-
-	nameAssignmentMsg := fmt.Sprintf("System: Your name is %s", client.DisplayName)
-	websocket.Message.Send(client.Conn, nameAssignmentMsg)
 
 	defer func() {
 		room.Mutex.Lock()
@@ -184,6 +238,10 @@ func handleWebSocket(ws *websocket.Conn) {
 			continue
 		}
 
+		if msg == "CHECKMARK_CLICKED" {
+			continue
+		}
+
 		if len(msg) > maxMessageLength {
 			errorMsg := "System: Message exceeds 160 character limit and was not sent."
 			websocket.Message.Send(client.Conn, errorMsg)
@@ -206,7 +264,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", servePage)
-	mux.Handle("/ws", websocket.Handler(handleWebSocket))
+	mux.Handle("/ws", wsAuthWrapper(websocket.Handler(handleWebSocket)))
 
 	fmt.Println("Server running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))

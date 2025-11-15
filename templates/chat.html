@@ -7,12 +7,13 @@
             margin:0; 
             padding:0; 
             width:100%; 
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "EmojiSymbols", emoji; 
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
         }
         body { 
             display:flex; 
             flex-direction:column; 
-            height: 100%; 
+            height: 100vh;
+            height: var(--app-height, 100vh);
             overflow:hidden; 
             background-color: #fff; 
             color: #333;
@@ -36,35 +37,37 @@
             align-items:center; 
             gap:8px; 
             background: #fff; 
-            padding: 12px 20px 12px 12px; 
-            height: 60px; 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            right: 0; 
-            z-index: 12; 
+            padding: calc(12px + env(safe-area-inset-top, 12px)) 20px 12px 12px;
+            height: calc(60px + env(safe-area-inset-top, 0px));
+            position: sticky;
+            top: 0;
             border-bottom: 1px solid #e9ecef;
         }
         #messages { 
             display: flex;
             flex-direction: column-reverse;
             flex: 1; 
-            overflow-y: auto;
+            overflow-y: auto; 
             padding: 0 12px; 
             font-size:16px; 
             line-height:1.5;
             gap: 8px;
+            padding-top: calc(72px + env(safe-area-inset-top, 0px));
+            padding-bottom: 84px;
         }
         #inputArea { 
-            flex-shrink:0; 
+            position: fixed; 
+            bottom: 0;
+            left: 0;
+            right: 0;
             display:flex; 
-            flex-wrap: nowrap;
             align-items:center; 
             gap:8px; 
             padding: 18px 20px 18px 16px; 
             padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); 
             border-top: 1px solid #e9ecef;
             background: #fff; 
+            z-index: 10;
         }
         #msgInput { 
             flex:1; 
@@ -82,12 +85,12 @@
             white-space:nowrap; 
             cursor:pointer; 
             flex-shrink:0; 
-            border: 1px solid #dee2e6;
-            background-color: #f7f7f7;
+            border: 1px solid #000; 
+            background-color: #000; 
+            color: #fff; 
             transition: background-color 0.2s ease;
         }
-        #sendBtn { padding: 10px 12px; }
-        #sendBtn:hover, #shareBtn:hover { background-color: #e9ecef; }
+        #sendBtn:hover, #shareBtn:hover { background-color: #333; }
         .msg { word-break:break-word; }
         .system-msg { word-break:break-word; color: #6c757d; font-style: italic; }
         #charCount { 
@@ -98,6 +101,7 @@
             text-align:right; 
             color: #6c757d;
         }
+
         {{.ResponsiveCSS}}
         @media (max-width: 768px) {
             #inputArea { padding: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); gap: 4px; }
@@ -109,84 +113,86 @@
     </style>
 </head>
 <body>
-<div id="header"><button id="shareBtn">Share Invite Link</button></div>
+<div id="header"><button id="shareBtn">invite</button></div>
 <div id="messages"></div>
-<form id="inputForm">
-<div id="inputArea"><input id="msgInput" type="text" maxlength="160" placeholder="Say something..." autocomplete="off"><span id="charCount">0/160</span><button id="sendBtn" type="submit">Send</button></div>
-</form>
+
+<div id="inputArea">
+    <input id="msgInput" type="text" maxlength="160" placeholder="Say something..." autocomplete="off" enterkeyhint="send">
+    <span id="charCount">0/160</span>
+    <button id="sendBtn" type="button">Send</button>
+</div>
+
 <script>
-(() => {
-    const roomID = window.location.pathname.substring(1);
-    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${location.host}/ws?room=${roomID}`;
+    const setAppHeight = () => {
+        const doc = document.documentElement;
+        doc.style.setProperty('--app-height', `${window.innerHeight}px`);
+    };
+    window.addEventListener('resize', setAppHeight);
+    setAppHeight();
 
     const elements = {
         messages: document.getElementById('messages'),
         input:    document.getElementById('msgInput'),
         charCount: document.getElementById('charCount'),
-        form:      document.getElementById('inputForm'),
+        sendBtn:    document.getElementById('sendBtn'),
+        shareBtn: document.getElementById('shareBtn'),
     };
+
+    const wsUrl = "{{.WSUrl}}";
 
     const MAX_RECONNECT_ATTEMPTS = 5;
     const INITIAL_RECONNECT_DELAY_MS = 2000;
     let reconnectAttempts = 0;
     let reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
-
-    let websocketConn;
     let reconnectTimeout;
-
-    const setAppHeight = () => {
-        const doc = document.documentElement;
-        let viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-        doc.style.setProperty('--app-height', `${viewportHeight}px`);
-    };
-
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', setAppHeight);
-    } else {
-        window.addEventListener('resize', setAppHeight);
-    }
-    window.addEventListener('orientationchange', setAppHeight);
-    setAppHeight();
+    let websocketConn;
 
     const connect = () => {
         clearTimeout(reconnectTimeout);
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            elements.messages.innerHTML += '<div class="system-msg">Connection lost. Please refresh.</div>';
+            elements.messages.innerHTML += '<div class="system-msg">Connection lost. Please refresh to reconnect.</div>';
             return;
         }
+        
         websocketConn = new WebSocket(wsUrl);
+
         websocketConn.onopen = () => {
+            console.log("WebSocket connection established.");
             reconnectAttempts = 0;
             reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
         };
+
         websocketConn.onmessage = (event) => {
             const message = event.data;
             const isSystem = message.startsWith("System:");
-            const isNameAssignment = isSystem && message.includes("Your name is");
-            if (isNameAssignment) { return; }
             const messageEl = document.createElement('div');
             messageEl.className = isSystem ? 'system-msg' : 'msg';
             messageEl.textContent = message;
             
             elements.messages.prepend(messageEl);
-            setTimeout(() => {
-                elements.messages.scrollTop = 0;
-            }, 0);
+            elements.messages.scrollTop = elements.messages.scrollHeight;
         };
+
         websocketConn.onclose = (event) => {
+            console.log("WebSocket connection closed.", event);
             if (event.code !== 1000) {
                 reconnectAttempts++;
                 reconnectTimeout = setTimeout(connect, reconnectDelay);
                 reconnectDelay = Math.min(reconnectDelay * 2, 30000);
             }
         };
-        websocketConn.onerror = () => { websocketConn.close(); };
+
+        websocketConn.onerror = (error) => { 
+            console.error("WebSocket error:", error);
+            reconnectAttempts++;
+            reconnectTimeout = setTimeout(connect, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
     };
 
     const sendMessage = () => {
         const text = elements.input.value.trim();
-        if (text && websocketConn.readyState === WebSocket.OPEN) {
+        if (text && websocketConn && websocketConn.readyState === WebSocket.OPEN) {
             websocketConn.send(text);
             elements.input.value = '';
             updateCharCount();
@@ -197,18 +203,14 @@
         const shareButton = document.getElementById('shareBtn');
         const originalText = shareButton.textContent;
         const textToCopy = location.href;
-        const shareData = {
-            title: 'Join my Chat Room',
-            text: 'Click the link to join my chat room!',
-            url: textToCopy
-        };
         const resetButtonText = () => { shareButton.textContent = originalText; };
         const copySuccess = () => {
             shareButton.textContent = 'Copied!';
             setTimeout(resetButtonText, 2000);
         };
         if (navigator.share) {
-            navigator.share(shareData).catch(() => fallbackCopy(textToCopy, copySuccess));
+            navigator.share({ title: 'Join my Chat Room', text: 'Click link to join my chat room!', url: textToCopy })
+                .catch(() => fallbackCopy(textToCopy, copySuccess));
         } else {
             fallbackCopy(textToCopy, copySuccess);
         }
@@ -229,18 +231,23 @@
     };
 
     const updateCharCount = () => {
-        const length = elements.input.value.length;
-        elements.charCount.textContent = `${length}/160`;
+        elements.charCount.textContent = `${elements.input.value.length}/160`;
     };
 
-    elements.form.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
+    elements.sendBtn.addEventListener('click', sendMessage);
     elements.input.addEventListener('input', updateCharCount);
-    document.getElementById('shareBtn').addEventListener('click', shareLink);
+    elements.shareBtn.addEventListener('click', shareLink);
 
+    elements.input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendMessage();
+        }
+    });
+
+    connect();
     elements.input.focus();
     updateCharCount();
-    connect();
-})();
 </script>
 </body>
 </html>

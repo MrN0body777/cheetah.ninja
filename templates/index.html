@@ -7,21 +7,20 @@
     <link rel="icon" href="data:;base64,=">
     <title>Start Chat</title>
     <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            -webkit-text-size-adjust: 100%;
-            -ms-text-size-adjust: 100%;
-            text-size-adjust: 100%;
+        html, body { 
+            margin:0; 
+            padding:0; 
+            width:100%; 
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
         }
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "EmojiSymbols", emoji;
+        body { 
+            display:flex; 
+            flex-direction:column; 
+            height: 100vh;
+            height: var(--app-height, 100vh);
+            overflow:hidden; 
+            background-color: #fff; 
+            color: #333;
             position: relative;
         }
         body::before {
@@ -31,22 +30,60 @@
             left: 50%;
             transform: translate(-50%, -50%);
             font-size: 300px;
-            opacity: 0.15;
+            opacity: 0.26;
             z-index: -1;
             pointer-events: none;
         }
-        button {
+        #header { 
+            flex-shrink:0; 
+            display:flex; 
+            justify-content:flex-end; 
+            align-items:center; 
+            gap:8px; 
+            background: #fff; 
+            padding: calc(12px + env(safe-area-inset-top, 12px)) 20px 12px 12px;
+            height: calc(60px + env(safe-area-inset-top, 0px));
+            position: sticky;
+            top: 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .landing-content {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #createForm button {
             padding: 22px 35px;
             font-size: 22px;
-            border-radius: 8px;
+            border-radius: 12px;
             cursor: pointer;
-            border: 1px solid #ccc;
+            border: 1px solid #000;
+            background-color: #000;
+            color: #fff;
+            transition: background-color 0.2s ease;
+        }
+        #createForm button:hover {
+            background-color: #333;
         }
     </style>
 </head>
 <body>
-    <form id="createForm" method="POST">
-        <button type="submit">Start Chat</button>
-    </form>
+    <div id="header"></div>
+    
+    <div class="landing-content">
+        <form id="createForm" method="POST">
+            <button type="submit">Start Chat</button>
+        </form>
+    </div>
+
+    <script>
+        const setAppHeight = () => {
+            const doc = document.documentElement;
+            doc.style.setProperty('--app-height', `${window.innerHeight}px`);
+        };
+        window.addEventListener('resize', setAppHeight);
+        setAppHeight();
+    </script>
 </body>
 </html>
