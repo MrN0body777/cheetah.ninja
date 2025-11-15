@@ -8,17 +8,19 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/securecookie"
 	"golang.org/x/net/websocket"
 )
 
-var hashKey = []byte("super-secret-hash-key-32-bytes-long")
-var blockKey = []byte("32-byte-long-encryption-key-1234")
-var scookie = securecookie.New(hashKey, blockKey)
+var scookie *securecookie.SecureCookie
+var jwtSecret []byte
 
 var roomsMutex sync.Mutex
 var rooms = make(map[string]*Room)
@@ -44,6 +46,13 @@ type ChatPageData struct {
 	WSUrl         string
 }
 
+type CustomClaims struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	RoomID      string `json:"room_id"`
+	jwt.RegisteredClaims
+}
+
 const maxMessageLength = 160
 
 var adjectives = []string{
@@ -58,6 +67,21 @@ var animals = []string{
 	"cobra", "viper", "mongoose", "falcon", "hawk", "eagle", "owl", "shark", "stalker",
 	"hunter", "ninja", "ghost", "wraith", "shade", "specter", "prowler", "shadow",
 	"blade", "strike", "dash", "pounce", "claw", "fist", "bolt",
+}
+
+func init() {
+	hashKeyStr := os.Getenv("HASH_KEY")
+	blockKeyStr := os.Getenv("BLOCK_KEY")
+	jwtSecretStr := os.Getenv("JWT_SECRET")
+
+	if hashKeyStr == "" || blockKeyStr == "" || jwtSecretStr == "" {
+		log.Fatal("FATAL: HASH_KEY, BLOCK_KEY, and JWT_SECRET environment variables must be set.")
+	}
+
+	scookie = securecookie.New([]byte(hashKeyStr), []byte(blockKeyStr))
+	jwtSecret = []byte(jwtSecretStr)
+
+	rand.Seed(time.Now().UnixNano())
 }
 
 func generateID() string {
@@ -75,37 +99,19 @@ func generateDisplayName() string {
 	return fmt.Sprintf("%s_%s%d", adj, animal, num)
 }
 
-func getOrCreateDisplayName(w http.ResponseWriter, r *http.Request) string {
-	var displayName string
-	cookie, err := r.Cookie("chatDisplayName")
-
-	if err == nil {
-		err = scookie.Decode("chatDisplayName", cookie.Value, &displayName)
-		if err != nil {
-			displayName = ""
-		} else {
-			return displayName
-		}
+func generateJWT(userID, displayName, roomID string) (string, error) {
+	claims := CustomClaims{
+		UserID:      userID,
+		DisplayName: displayName,
+		RoomID:      roomID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	}
 
-	displayName = generateDisplayName()
-
-	encoded, err := scookie.Encode("chatDisplayName", displayName)
-	if err != nil {
-		return ""
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "chatDisplayName",
-		Value:    encoded,
-		Path:     "/",
-		MaxAge:   86400 * 30,
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	return displayName
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
 }
 
 func servePage(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +135,31 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	getOrCreateDisplayName(w, r)
+	displayName := generateDisplayName()
+	cookie, err := r.Cookie("chatDisplayName")
+	if err == nil {
+		if err = scookie.Decode("chatDisplayName", cookie.Value, &displayName); err != nil {
+			displayName = generateDisplayName()
+		}
+	}
+
+	userID := generateID()
+
+	tokenString, err := generateJWT(userID, displayName, roomID)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    tokenString,
+		Path:     "/",
+		MaxAge:   86400 * 1,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	metaTags := `<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no, viewport-fit=cover">
@@ -164,37 +194,40 @@ body {
 		WSUrl:         wsUrl,
 	}
 
-	err := chatTemplate.Execute(w, data)
+	err = chatTemplate.Execute(w, data)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
 
-func wsAuthWrapper(h websocket.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		displayName := getOrCreateDisplayName(w, r)
-		if displayName == "" {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-
-		q := r.URL.Query()
-		q.Set("name", displayName)
-		r.URL.RawQuery = q.Encode()
-
-		h.ServeHTTP(w, r)
-	}
-}
-
 func handleWebSocket(ws *websocket.Conn) {
-	roomID := ws.Request().URL.Query().Get("room")
-	userID := generateID()
-	displayName := ws.Request().URL.Query().Get("name")
-
-	if displayName == "" {
+	cookie, err := ws.Request().Cookie("auth_token")
+	if err != nil {
 		ws.Close()
 		return
 	}
+
+	token, err := jwt.ParseWithClaims(cookie.Value, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		ws.Close()
+		return
+	}
+
+	claims, ok := token.Claims.(*CustomClaims)
+	if !ok {
+		ws.Close()
+		return
+	}
+
+	roomID := claims.RoomID
+	userID := claims.UserID
+	displayName := claims.DisplayName
 
 	roomsMutex.Lock()
 	room, exists := rooms[roomID]
@@ -243,11 +276,7 @@ func handleWebSocket(ws *websocket.Conn) {
 		}
 
 		msg = strings.TrimSpace(msg)
-		if len(msg) == 0 {
-			continue
-		}
-
-		if msg == "CHECKMARK_CLICKED" {
+		if len(msg) == 0 || msg == "CHECKMARK_CLICKED" {
 			continue
 		}
 
@@ -269,10 +298,17 @@ func handleWebSocket(ws *websocket.Conn) {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", servePage)
-	mux.Handle("/ws", wsAuthWrapper(websocket.Handler(handleWebSocket)))
+	mux.Handle("/ws", websocket.Handler(handleWebSocket))
 
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	proxyAwareMux := handlers.ProxyHeaders(mux)
+
+	log.Printf("Server starting on port %s", port)
+	log.Fatal(http.ListenAndServe(":"+port, proxyAwareMux))
 }
