@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/gorilla/handlers"
 	"github.com/gorilla/securecookie"
 	"golang.org/x/net/websocket"
 )
@@ -135,15 +134,35 @@ func servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	displayName := generateDisplayName()
-	cookie, err := r.Cookie("chatDisplayName")
+	var userID string
+	userIDCookie, err := r.Cookie("room_user_id_" + roomID)
 	if err == nil {
-		if err = scookie.Decode("chatDisplayName", cookie.Value, &displayName); err != nil {
-			displayName = generateDisplayName()
-		}
+		userID = userIDCookie.Value
 	}
 
-	userID := generateID()
+	if userID == "" {
+		userID = generateID()
+		http.SetCookie(w, &http.Cookie{
+			Name:     "room_user_id_" + roomID,
+			Value:    userID,
+			Path:     "/",
+			MaxAge:   86400 * 30,
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
+	var displayName string
+	cookie, err := r.Cookie("chatDisplayName")
+	if err == nil {
+
+		scookie.Decode("chatDisplayName", cookie.Value, &displayName)
+	}
+
+	if displayName == "" {
+		displayName = generateDisplayName()
+	}
 
 	tokenString, err := generateJWT(userID, displayName, roomID)
 	if err != nil {
@@ -182,9 +201,10 @@ body {
 }`
 
 	wsProtocol := "ws"
-	if r.TLS != nil {
+	if r.Header.Get("X-Forwarded-Proto") == "https" {
 		wsProtocol = "wss"
 	}
+
 	wsUrl := fmt.Sprintf("%s://%s/ws?room=%s", wsProtocol, r.Host, roomID)
 
 	data := ChatPageData{
@@ -307,8 +327,6 @@ func main() {
 	mux.HandleFunc("/", servePage)
 	mux.Handle("/ws", websocket.Handler(handleWebSocket))
 
-	proxyAwareMux := handlers.ProxyHeaders(mux)
-
 	log.Printf("Server starting on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, proxyAwareMux))
+	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
