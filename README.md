@@ -46,8 +46,8 @@ To run a copy of the project locally, ensure you have **Go 1.20+** installed and
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/your-repo.git
-    cd your-repo
+    git clone [https://github.com/MrN0body777/cheetah.ninja.git]
+    cd cheatah.ninja
     ```
 
 2.  **Install dependencies:**
