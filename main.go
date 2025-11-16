@@ -197,7 +197,7 @@ body {
     padding-bottom:env(safe-area-inset-bottom); 
 }
 #messages { 
-    padding-top: calc(84px + 12px + env(safe-area-inset-top,0)); 
+    padding-top: calc(84px + 12px + env(safe-area-inset-top,0px)); 
 }`
 
 	wsProtocol := "ws"
@@ -310,7 +310,12 @@ func handleWebSocket(ws *websocket.Conn) {
 
 		room.Mutex.Lock()
 		for clientConn := range room.Clients {
+			if clientConn == client {
+				continue
+			}
+
 			if err := websocket.Message.Send(clientConn.Conn, formattedMsg); err != nil {
+				log.Printf("Error sending message to client %s: %v", clientConn.DisplayName, err)
 			}
 		}
 		room.Mutex.Unlock()
