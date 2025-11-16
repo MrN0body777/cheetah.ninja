@@ -310,10 +310,6 @@ func handleWebSocket(ws *websocket.Conn) {
 
 		room.Mutex.Lock()
 		for clientConn := range room.Clients {
-			if clientConn == client {
-				continue
-			}
-
 			if err := websocket.Message.Send(clientConn.Conn, formattedMsg); err != nil {
 				log.Printf("Error sending message to client %s: %v", clientConn.DisplayName, err)
 			}
