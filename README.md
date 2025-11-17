@@ -1,9 +1,3 @@
-
-
-Of course! Here is a complete, professional, and generic README that incorporates your setup (Nginx, Let's Encrypt, systemd) but is written with best practices and placeholders so anyone can follow it.
-
-This version emphasizes creating a dedicated system user and compiling the application for production.
-
 ---
 
 # Cheetah Chat
